@@ -683,6 +683,8 @@ def live():
     global _last_dashboard_ping
     with _ping_lock:
         _last_dashboard_ping = time.time()
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    print(f"[PING] /live called from IP: {ip}", flush=True)
     return jsonify(latest)
 
 
