@@ -140,8 +140,7 @@ USER_PRESENT_TIMEOUT = 0.5   # seconds since last /live poll = "user is present"
 _last_dashboard_ping  = 0.0   # epoch timestamp, updated on every /live request
 
 def _user_is_present() -> bool:
-    """Returns True if the dashboard was polled within USER_PRESENT_TIMEOUT seconds."""
-    return (time.time() - _last_dashboard_ping) < USER_PRESENT_TIMEOUT
+    return False
 
 app = Flask(__name__)
 
