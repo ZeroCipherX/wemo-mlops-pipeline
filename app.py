@@ -1,5 +1,5 @@
 """
-WEMO Command Center — Flask Backend  v4.5 (Targeted Training Flow)
+WEMO Command Center — Flask Backend  v4.6 (Stability Window)
 ==========================================
 """
 
@@ -48,7 +48,7 @@ def get_default_config():
     return {
         "class_power_floor": {
             "Bulb + Fan":      12.3,
-            "Fan":             20.0,   
+            "Fan":             20.0,
             "Laptop Charger": 35.0,
             "Iron":           700.0,
             "AC":             800.0
@@ -60,8 +60,8 @@ def get_default_config():
             "LED Bulb":              [5,    20],
             "Bulb":                  [5,    20],
             "Fan":                   [14,   80],
-            "Bulb + Fan":            [10,   25],   
-            "Bulb + Mobile Charger": [14,   30],   
+            "Bulb + Fan":            [10,   25],
+            "Bulb + Mobile Charger": [14,   30],
             "Iron":                  [800, 1200],
             "AC":                    [900, 2200],
             "No Load Connected":     [0,  9999]
@@ -96,7 +96,7 @@ def _mistral_chat(prompt: str) -> str:
     url = "https://api.mistral.ai/v1/chat/completions"
 
     try:
-        import httpx  
+        import httpx
         r = httpx.post(url, headers=headers, json=payload, timeout=25.0)
         r.raise_for_status()
         return r.json()["choices"][0]["message"]["content"].strip()
@@ -126,6 +126,22 @@ STABILIZE_SECS    = 3
 RECORD_TARGET     = 30
 ANOMALY_THRESHOLD = 5.5
 NO_LOAD_RECORD_THRESHOLD = 3.0
+
+# ─── Stability Window Config (False-Alert Prevention) ─────────────────────────
+# An anomaly must persist for this many consecutive data packets with power
+# spread < STABILITY_VARIANCE_MAX before a WhatsApp alert is sent.
+STABILITY_WINDOW       = 3    # packets (≈ 3 seconds at 1 Hz)
+STABILITY_VARIANCE_MAX = 5.0  # Watts — max allowed spread across the window
+
+# ─── User Presence Detection (Twilio Credit Protection) ───────────────────────
+# The dashboard polls /live every ~1 s. If we saw a poll within this window,
+# the user is actively watching — no need to burn a WhatsApp message.
+USER_PRESENT_TIMEOUT = 30.0   # seconds since last /live poll = "user is present"
+_last_dashboard_ping  = 0.0   # epoch timestamp, updated on every /live request
+
+def _user_is_present() -> bool:
+    """Returns True if the dashboard was polled within USER_PRESENT_TIMEOUT seconds."""
+    return (time.time() - _last_dashboard_ping) < USER_PRESENT_TIMEOUT
 
 app = Flask(__name__)
 
@@ -162,7 +178,7 @@ FAULT_POWER_HIGH   = 2000.0
 RELAY_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "relay_state.json")
 
 def load_relay_state():
-    return 0  
+    return 0
 
 def save_relay_state(state, user_set=False):
     try:
@@ -233,47 +249,66 @@ def reset_smoother():
         _sm_label = _sm_status = _sm_health = _sm_dist = None
 
 
-# ─── UPDATED: Unknown Load Tracker (Detect -> Alert -> Name -> Record) ────────
+# ─── Unknown Load Tracker (Stabilizing -> Alert -> Name -> Record) ─────────────
+# State machine phases:
+#   idle        — no unknown load in flight
+#   stabilizing — anomaly seen; collecting STABILITY_WINDOW readings to confirm
+#                 it's a real load, not an inrush spike
+#   alerted     — stable unknown confirmed; WhatsApp sent; waiting for user name
+#   recording   — user named it; collecting RECORD_TARGET training samples
+
 _unk_lock = threading.Lock()
 _unk = {
-    "phase": "idle",       # idle, stabilizing, alerted, recording
+    "phase": "idle",
     "power_snap": 0.0,
     "pf_snap": 0.0,
     "i_snap": 0.0,
     "pending_name": "",
     "readings": [],
     "alert_sent": False,
-    "stability_buffer": [] # <--- Buffer for 3-second check
+    # ── NEW: rolling buffer used during the stability check window ──
+    "stability_buffer": [],   # list of power floats, max length = STABILITY_WINDOW
+    # ── NEW: set True when user manually triggers training from the UI ──
+    # Prevents a Twilio message when the user is already sitting on the dashboard.
+    "suppress_alert": False,
 }
 
 def _reset_unk_locked():
+    """Full reset to idle. Must be called while _unk_lock is held."""
     _unk.update({
-        "phase": "idle", "power_snap": 0.0, "pf_snap": 0.0, "i_snap": 0.0,
-        "pending_name": "", "readings": [], "alert_sent": False,
-        "stability_buffer": []
+        "phase": "idle",
+        "power_snap": 0.0,
+        "pf_snap": 0.0,
+        "i_snap": 0.0,
+        "pending_name": "",
+        "readings": [],
+        "alert_sent": False,
+        "stability_buffer": [],   # ← cleared on every reset
+        "suppress_alert": False,  # ← cleared on every reset
     })
 
 
 def send_whatsapp_unknown_alert(power: float, pf: float, current: float):
-    """Sends a WhatsApp message ONLY for unknown devices."""
+    """Sends a WhatsApp message ONLY for unknown devices (after stability check)."""
     if not WHATSAPP_ENABLED:
         return
     try:
         url = f"https://api.twilio.com/2010-04-01/Accounts/{TWILIO_ACCOUNT_SID}/Messages.json"
-        
+
         message_body = (
             f"❓ *WEMO AI: Unknown Load Detected*\n\n"
             f"A new device was plugged in and needs a name!\n\n"
             f"⚡ *Power:* {power:.1f} W\n"
             f"🔌 *Current:* {current:.2f} A\n"
             f"📉 *PF:* {pf:.2f}\n\n"
-            f"Please check your browser Command Center to name this load. Training will begin automatically after you confirm."
+            f"Please check your browser Command Center to name this load. "
+            f"Training will begin automatically after you confirm."
         )
 
         data = {
             "From": TWILIO_WA_FROM,
             "To": TWILIO_WA_TO,
-            "Body": message_body
+            "Body": message_body,
         }
         encoded_data = urllib.parse.urlencode(data).encode("utf-8")
 
@@ -285,8 +320,8 @@ def send_whatsapp_unknown_alert(power: float, pf: float, current: float):
 
         with urllib.request.urlopen(req, timeout=10) as response:
             if response.status == 201:
-                print(f"[INFO] WhatsApp Alert Sent for Unknown Load ({power:.1f}W)")
-            
+                print(f"[INFO] WhatsApp Alert Sent for Unknown Load ({power:.1f} W)")
+
     except Exception as e:
         print(f"[WARN] Twilio WhatsApp alert failed: {e}")
 
@@ -316,7 +351,7 @@ def run_knn(power: float, pf: float) -> dict:
         return {"is_no_load": False, "is_anomaly": False,
                 "label": "Model not trained yet", "dist": None,
                 "status": "idle", "health": "No trained model. Name a load to start."}
-                
+
     cfg = read_wemo_config()
     class_power_floor = cfg.get("class_power_floor", {})
     health_thresholds = cfg.get("health_thresholds", {})
@@ -411,11 +446,11 @@ def retrain_model():
             joblib.dump(nk, KNN_PATH)
             joblib.dump(ns, SCALER_PATH)
 
-            with _ml_lock:           
+            with _ml_lock:
                 _knn = nk; _scaler = ns; ML_READY = True
 
             latest["retrain_count"] = latest.get("retrain_count", 0) + 1
-            reset_smoother()         
+            reset_smoother()
         except Exception as e:
             pass
 
@@ -461,75 +496,118 @@ def ingest():
 
         esp_relay = int(data.get("relay", latest["relay"]))
         if esp_relay != latest["relay"]:
-            latest["relay_desired"] = esp_relay  
+            latest["relay_desired"] = esp_relay
             save_relay_state(esp_relay, user_set=True)
 
         knn_result = run_knn(power, pf)
 
-        # ─── New targeted unknown-load logic ───
+        # ─── Unknown Load State Machine (with Stability Window) ───────────────
+        #
+        # Phase transitions:
+        #
+        #   idle  ──(anomaly detected)──►  stabilizing
+        #                                      │
+        #              (power drops / KNN      │  (STABILITY_WINDOW consecutive
+        #               identifies it)         │   anomaly readings, spread < 5 W)
+        #                    │                 ▼
+        #                    └──────────►  alerted  ──(user names it)──►  recording
+        #                                                                     │
+        #                                                    (30 samples collected)
+        #                                                                     │
+        #                                                                     ▼
+        #                                                                   idle
+        # ─────────────────────────────────────────────────────────────────────
+
         with _unk_lock:
-            # 1. Active Stability Window Verification
-            if _unk["phase"] == "stabilizing":
-                if power <= NO_LOAD_RECORD_THRESHOLD or not knn_result["is_anomaly"]:
-                    # Power dropped or KNN recognized it during the 3 seconds -> abort alert
-                    _reset_unk_locked()
-                else:
-                    # Still an anomaly, add to the buffer
-                    _unk["stability_buffer"].append(power)
-                    
-                    # Maintain a rolling window of 3 samples (3 seconds)
-                    if len(_unk["stability_buffer"]) > STABILIZE_SECS:
-                        _unk["stability_buffer"].pop(0)
-                    
-                    # Once we have 3 consecutive samples, check for stability
-                    if len(_unk["stability_buffer"]) == STABILIZE_SECS:
-                        # Variance Check: Max reading minus Min reading <= 5.0 Watts
-                        p_variance = max(_unk["stability_buffer"]) - min(_unk["stability_buffer"])
-                        
-                        if p_variance <= 5.0:
-                            # Load is stable! Trigger the Twilio Alert
-                            _unk["phase"] = "alerted"
-                            _unk["power_snap"] = power
-                            _unk["pf_snap"] = pf
-                            _unk["i_snap"] = i
-                            if not _unk["alert_sent"]:
-                                _unk["alert_sent"] = True
-                                threading.Thread(
-                                    target=send_whatsapp_unknown_alert, 
-                                    args=(power, pf, i), 
-                                    daemon=True
-                                ).start()
-                            _unk["stability_buffer"].clear()
 
-            # 2. Detect New Anomaly -> Start Stability Window
-            elif knn_result["is_anomaly"] and power > NO_LOAD_RECORD_THRESHOLD and _unk["phase"] == "idle":
-                _unk["phase"] = "stabilizing"
-                _unk["stability_buffer"] = [power]
-
-            # 3. If load drops back to zero before naming/recording, reset safely
-            elif power < NO_LOAD_RECORD_THRESHOLD and _unk["phase"] in ["alerted", "recording"]:
+            # ── Guard 1: load dropped — abort any in-flight detection ──────────
+            if power < NO_LOAD_RECORD_THRESHOLD and _unk["phase"] in ("stabilizing", "alerted", "recording"):
                 _reset_unk_locked()
 
-            # 4. If user has named it, collect 30 samples
+            # ── STABILIZING phase: accumulate readings, then decide ────────────
+            elif knn_result["is_anomaly"] and power > NO_LOAD_RECORD_THRESHOLD:
+
+                if _unk["phase"] == "idle":
+                    # First anomaly packet — start the stability check
+                    _unk["phase"] = "stabilizing"
+                    _unk["stability_buffer"] = [power]
+                    _unk["power_snap"] = power
+                    _unk["pf_snap"]    = pf
+                    _unk["i_snap"]     = i
+                    print(f"[STABILITY] Anomaly seen ({power:.1f} W). Starting stability window.")
+
+                elif _unk["phase"] == "stabilizing":
+                    # Append each subsequent anomaly reading
+                    _unk["stability_buffer"].append(power)
+                    buf = _unk["stability_buffer"]
+                    print(f"[STABILITY] Window {len(buf)}/{STABILITY_WINDOW} — "
+                          f"spread={max(buf)-min(buf):.2f} W")
+
+                    if len(buf) >= STABILITY_WINDOW:
+                        spread = max(buf) - min(buf)
+
+                        if spread < STABILITY_VARIANCE_MAX:
+                            # ✅ Stable real load — promote to alerted
+                            _unk["phase"]      = "alerted"
+                            _unk["power_snap"] = float(np.median(buf))
+                            _unk["pf_snap"]    = pf
+                            _unk["i_snap"]     = i
+                            print(f"[STABILITY] PASSED — real unknown load "
+                                  f"({_unk['power_snap']:.1f} W). Sending alert.")
+
+                            # ── Twilio Credit Guard ───────────────────────────
+                            # Skip the WhatsApp if the user is already on the
+                            # dashboard (they'll see the banner) OR if this was
+                            # triggered manually from the UI.
+                            if not _unk["alert_sent"] and not _unk["suppress_alert"] and not _user_is_present():
+                                _unk["alert_sent"] = True
+                                threading.Thread(
+                                    target=send_whatsapp_unknown_alert,
+                                    args=(_unk["power_snap"], _unk["pf_snap"], _unk["i_snap"]),
+                                    daemon=True,
+                                ).start()
+                            else:
+                                reason = ("manual trigger" if _unk["suppress_alert"]
+                                          else "user present on dashboard")
+                                print(f"[STABILITY] WhatsApp suppressed — {reason}.")
+                        else:
+                            # ❌ Spread too high — inrush / noise spike, ignore
+                            print(f"[STABILITY] FAILED — spread={spread:.2f} W > "
+                                  f"{STABILITY_VARIANCE_MAX} W. Treating as noise, resetting.")
+                            _reset_unk_locked()
+
+                # If already alerted/recording, anomaly readings are expected — no action needed
+
+            # ── Guard 2: KNN now recognises the load during stability window ───
+            elif not knn_result["is_anomaly"] and _unk["phase"] == "stabilizing":
+                print(f"[STABILITY] Load identified as '{knn_result['label']}' during window. Aborting.")
+                _reset_unk_locked()
+
+            # ── RECORDING phase: collect training samples ─────────────────────
             elif _unk["phase"] == "recording":
-                _unk["readings"].append({"power_W": round(power, 3), "power_factor": round(pf, 4)})
-                
-                # Check if we have gathered all 30
+                _unk["readings"].append({
+                    "power_W":      round(power, 3),
+                    "power_factor": round(pf, 4),
+                })
+
                 if len(_unk["readings"]) >= RECORD_TARGET:
                     name = _unk["pending_name"]
-                    pws = [r["power_W"] for r in _unk["readings"]]
+                    pws  = [r["power_W"] for r in _unk["readings"]]
                     power_rep = float(np.median(pws))
 
-                    # Append to CSV
-                    new_rows = [{"power_W": r["power_W"], "power_factor": r["power_factor"], "appliance": name}
-                                for r in _unk["readings"]]
+                    # Append to training CSV
+                    new_rows = [
+                        {"power_W": r["power_W"], "power_factor": r["power_factor"], "appliance": name}
+                        for r in _unk["readings"]
+                    ]
                     fe = os.path.exists(TRAINING_CSV)
                     with open(TRAINING_CSV, "a", newline="") as f:
                         w = csv.DictWriter(f, fieldnames=TRAINING_FIELDNAMES)
-                        if not fe: w.writeheader()
+                        if not fe:
+                            w.writeheader()
                         w.writerows(new_rows)
 
-                    # Update Health Thresholds dynamically
+                    # Dynamically update health thresholds for the new appliance
                     cfg = read_wemo_config()
                     if name not in cfg.get("health_thresholds", {}):
                         lo = round(max(1.0, power_rep * 0.60), 1)
@@ -543,26 +621,36 @@ def ingest():
                     reset_smoother()
                     threading.Thread(target=retrain_model, daemon=True).start()
 
-        # Generate UI Texts based on phase
+        # ─── Build UI text from current phase ─────────────────────────────────
         faults = analyse_faults(v, i, power, pf)
         phase  = _unk["phase"]
 
-        if phase == "alerted":
-            pred_text = "Unknown Load Detected"
-            health_text = f"Waiting for name... ({_unk['power_snap']:.1f}W)"
+        if phase == "stabilizing":
+            buf     = _unk["stability_buffer"]
+            cnt     = len(buf)
+            spread  = round(max(buf) - min(buf), 1) if buf else 0
+            pred_text   = "Verifying new load…"
+            health_text = (f"Stability check {cnt}/{STABILITY_WINDOW} "
+                           f"({power:.1f} W, spread {spread} W). Do not unplug!")
             dev_status  = "warning"
+
+        elif phase == "alerted":
+            pred_text   = "Unknown Load Detected"
+            health_text = f"Waiting for name… ({_unk['power_snap']:.1f} W)"
+            dev_status  = "warning"
+
         elif phase == "recording":
-            cnt = len(_unk["readings"])
-            pred_text = f"Training '{_unk['pending_name']}'"
+            cnt         = len(_unk["readings"])
+            pred_text   = f"Training '{_unk['pending_name']}'"
             health_text = f"Capturing {cnt}/{RECORD_TARGET} readings. Do not unplug!"
             dev_status  = "warning"
+
         else:
-            # Handles "idle" and "stabilizing" transparently for the UI
             pred_text   = knn_result["label"]
             health_text = knn_result["health"]
             dev_status  = knn_result["status"]
 
-        if phase not in ("alerted", "recording"):
+        if phase not in ("stabilizing", "alerted", "recording"):
             pred_text, dev_status, health_text, smooth_dist = smooth_prediction(
                 pred_text, dev_status, health_text, knn_result["dist"])
             anomaly_dist = smooth_dist
@@ -587,7 +675,7 @@ def ingest():
             "recording_count":  len(_unk["readings"]),
             "unknown_alert":    (phase == "alerted"),
             "unknown_power":    _unk["power_snap"] if phase == "alerted" else 0.0,
-            "unknown_pf":       _unk["pf_snap"] if phase == "alerted" else 0.0,
+            "unknown_pf":       _unk["pf_snap"]    if phase == "alerted" else 0.0,
             **faults,
         })
         history.append({"t": latest["timestamp"], "p": power, "pf": pf})
@@ -600,6 +688,8 @@ def ingest():
 
 @app.route("/live")
 def live():
+    global _last_dashboard_ping
+    _last_dashboard_ping = time.time()   # ← heartbeat: user is on the dashboard
     return jsonify(latest)
 
 @app.route("/history")
@@ -681,18 +771,18 @@ def name_load():
         name = str(data.get("name", "")).strip()
         if not name:
             return jsonify({"ok": False, "error": "Name cannot be empty."}), 400
-            
+
         with _unk_lock:
             # Shift from 'alerted' (waiting for name) to 'recording'
             _unk["pending_name"] = name
             _unk["readings"] = []
             _unk["phase"] = "recording"
-            
+
         return jsonify({
-            "ok": True, 
+            "ok": True,
             "message": f"Saving '{name}'... Recording 30 samples now. Leave device plugged in."
         }), 200
-        
+
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 
@@ -741,14 +831,15 @@ def start_training():
             return jsonify({"ok": False,
                             "error": f"No load ({cur:.1f} W). Plug in first."}), 400
         with _unk_lock:
-            if _unk["phase"] in ("recording", "alerted"):
+            if _unk["phase"] in ("recording", "alerted", "stabilizing"):
                 return jsonify({"ok": True, "message": "Already gathering data.",
                                 "phase": _unk["phase"]}), 200
-            
-            _unk["phase"] = "alerted"
+
+            _unk["phase"] = "alerted"   # skip stability window for manual trigger
             _unk["power_snap"] = cur
             _unk["pf_snap"] = latest.get("pf", 0)
-            
+            _unk["suppress_alert"] = True   # user is on the dashboard — no WhatsApp needed
+
         reset_smoother()
         return jsonify({"ok": True, "message": f"Ready to train on {cur:.1f} W. Please name it."}), 200
     except Exception as exc:
@@ -773,26 +864,26 @@ def relay_control():
         state = str(data.get("state", "")).upper()
         if state not in ("ON", "OFF"):
             return jsonify({"ok": False, "error": "state must be ON or OFF"}), 400
-            
+
         relay_val = 1 if state == "ON" else 0
-        latest["relay_desired"] = relay_val  
-        save_relay_state(relay_val, user_set=True)  
+        latest["relay_desired"] = relay_val
+        save_relay_state(relay_val, user_set=True)
         return jsonify({"ok": True, "relay": state, "relay_state": relay_val}), 200
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 @app.route("/api/relay-state")
 def relay_state():
-    relay_desired = latest.get("relay_desired", 0)  
+    relay_desired = latest.get("relay_desired", 0)
     state = "ON" if relay_desired == 1 else "OFF"
-    
+
     resp = {
-        "ok": True, 
-        "relay": relay_desired,  
+        "ok": True,
+        "relay": relay_desired,
         "state": state,
-        "relay_desired": relay_desired
+        "relay_desired": relay_desired,
     }
-    
+
     config = read_wifi_config()
     if config.get("pending_update", False):
         resp["wifi_update"] = True
@@ -802,7 +893,7 @@ def relay_state():
         with _wifi_lock:
             with open(WIFI_CONFIG_JSON, "w") as f:
                 json.dump(config, f, indent=2)
-                
+
     return jsonify(resp), 200
 
 @app.route("/api/delete-class", methods=["POST"])
@@ -820,7 +911,7 @@ def delete_class():
         if removed == 0:
             return jsonify({"ok": False, "error": f"'{name}' not found."}), 404
         df.to_csv(TRAINING_CSV, index=False)
-        
+
         cfg = read_wemo_config()
         if name in cfg.get("health_thresholds", {}):
             del cfg["health_thresholds"][name]
@@ -829,7 +920,7 @@ def delete_class():
         with _config_lock:
             with open(WEMO_CONFIG_FILE, "w") as f:
                 json.dump(cfg, f, indent=4)
-                
+
         reset_smoother()
         threading.Thread(target=retrain_model, daemon=True).start()
         return jsonify({"ok": True, "removed": removed,
@@ -839,7 +930,8 @@ def delete_class():
 
 # ─── Data Logging System ──────────────────────────────────────────────────────
 DATA_LOG_CSV = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sensor_data_log.csv")
-DATA_LOG_FIELDNAMES = ["timestamp", "voltage_V", "current_A", "power_W", "power_factor", "energy_kWh", "relay_state", "rssi", "prediction", "device_status"]
+DATA_LOG_FIELDNAMES = ["timestamp", "voltage_V", "current_A", "power_W", "power_factor",
+                       "energy_kWh", "relay_state", "rssi", "prediction", "device_status"]
 _log_lock = threading.Lock()
 
 def init_data_log():
@@ -858,16 +950,16 @@ def log_sensor_data(sensor_dict):
                 if is_empty:
                     w.writeheader()
                 w.writerow({
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "voltage_V": round(float(sensor_dict.get("v", 0)), 1),
-                    "current_A": round(float(sensor_dict.get("i", 0)), 3),
-                    "power_W": round(float(sensor_dict.get("p", 0)), 2),
+                    "timestamp":    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "voltage_V":    round(float(sensor_dict.get("v", 0)), 1),
+                    "current_A":    round(float(sensor_dict.get("i", 0)), 3),
+                    "power_W":      round(float(sensor_dict.get("p", 0)), 2),
                     "power_factor": round(float(sensor_dict.get("pf", 0)), 3),
-                    "energy_kWh": round(float(sensor_dict.get("e", 0)), 4),
-                    "relay_state": int(sensor_dict.get("relay", 0)),
-                    "rssi": int(sensor_dict.get("rssi", 0)),
-                    "prediction": str(sensor_dict.get("prediction", "—")),
-                    "device_status": str(sensor_dict.get("device_status", "—")),
+                    "energy_kWh":   round(float(sensor_dict.get("e", 0)), 4),
+                    "relay_state":  int(sensor_dict.get("relay", 0)),
+                    "rssi":         int(sensor_dict.get("rssi", 0)),
+                    "prediction":   str(sensor_dict.get("prediction", "—")),
+                    "device_status":str(sensor_dict.get("device_status", "—")),
                 })
     except Exception as e:
         pass
@@ -878,42 +970,42 @@ def get_data_logs():
         limit = request.args.get("limit", default=500, type=int)
         if not os.path.exists(DATA_LOG_CSV) or os.path.getsize(DATA_LOG_CSV) == 0:
             return jsonify({"logs": [], "total": 0})
-        
+
         with open(DATA_LOG_CSV, mode="r", encoding="utf-8", errors="replace") as f:
             reader = csv.DictReader(f)
             all_rows = list(reader)
-            
+
         if not all_rows:
             return jsonify({"logs": [], "total": 0})
-        
+
         all_rows.reverse()
         total_count = len(all_rows)
-        
+
         if limit > 0:
             all_rows = all_rows[:limit]
-            
+
         def safe_float(val):
             try:
                 return float(val) if val else 0.0
             except:
                 return 0.0
-        
+
         logs = []
         for idx, row in enumerate(all_rows):
             logs.append({
-                "id": idx,
-                "timestamp": str(row.get("timestamp", "—")),
-                "voltage": safe_float(row.get("voltage_V")),
-                "current": safe_float(row.get("current_A")),
-                "power": safe_float(row.get("power_W")),
-                "pf": safe_float(row.get("power_factor")),
-                "energy": safe_float(row.get("energy_kWh")),
-                "relay": int(safe_float(row.get("relay_state"))),
-                "rssi": int(safe_float(row.get("rssi"))),
+                "id":         idx,
+                "timestamp":  str(row.get("timestamp", "—")),
+                "voltage":    safe_float(row.get("voltage_V")),
+                "current":    safe_float(row.get("current_A")),
+                "power":      safe_float(row.get("power_W")),
+                "pf":         safe_float(row.get("power_factor")),
+                "energy":     safe_float(row.get("energy_kWh")),
+                "relay":      int(safe_float(row.get("relay_state"))),
+                "rssi":       int(safe_float(row.get("rssi"))),
                 "prediction": str(row.get("prediction", "—")),
-                "status": str(row.get("device_status", "—")),
+                "status":     str(row.get("device_status", "—")),
             })
-        
+
         return jsonify({"logs": logs, "total": total_count, "count": len(logs)})
     except Exception as exc:
         return jsonify({"error": str(exc), "logs": [], "total": 0}), 400
@@ -921,12 +1013,12 @@ def get_data_logs():
 @app.route("/api/data-logs/clear", methods=["POST"])
 def clear_data_logs():
     try:
-        data = request.get_json(force=True)
+        data   = request.get_json(force=True)
         action = data.get("action", "all")
-        
+
         if not os.path.exists(DATA_LOG_CSV):
             return jsonify({"ok": True, "message": "No logs to clear."})
-        
+
         with _log_lock:
             if action == "all":
                 with open(DATA_LOG_CSV, "w", newline="") as f:
@@ -936,12 +1028,12 @@ def clear_data_logs():
             else:
                 import pandas as pd
                 df = pd.read_csv(DATA_LOG_CSV)
-                before = len(df)
-                df = df[df["timestamp"] != action]
+                before  = len(df)
+                df      = df[df["timestamp"] != action]
                 removed = before - len(df)
                 if removed > 0:
                     df.to_csv(DATA_LOG_CSV, index=False)
-                    return jsonify({"ok": True, "message": f"Deleted 1 log entry."}), 200
+                    return jsonify({"ok": True, "message": "Deleted 1 log entry."}), 200
                 else:
                     return jsonify({"ok": False, "error": "Log entry not found."}), 404
     except Exception as exc:
@@ -953,13 +1045,13 @@ def export_data_logs():
         if not os.path.exists(DATA_LOG_CSV):
             return jsonify({"error": "No logs to export."}), 404
         from flask import send_file
-        return send_file(DATA_LOG_CSV, as_attachment=True, 
-                        download_name=f"sensor_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                        mimetype="text/csv")
+        return send_file(DATA_LOG_CSV, as_attachment=True,
+                         download_name=f"sensor_logs_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                         mimetype="text/csv")
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
 
-# ─── New API Endpoints for ML Configuration ───────────────────────────────────
+# ─── ML Configuration ─────────────────────────────────────────────────────────
 @app.route("/api/wemo-config", methods=["GET"])
 def get_wemo_config_api():
     return jsonify({"ok": True, "config": read_wemo_config()})
@@ -974,7 +1066,6 @@ def set_wemo_config_api():
         return jsonify({"ok": True, "message": "ML Configuration updated successfully!"}), 200
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
-
 
 # ─── WiFi Configuration System ────────────────────────────────────────────────
 WIFI_CONFIG_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wifi_config.json")
@@ -1016,27 +1107,27 @@ def get_wifi_config():
 @app.route("/api/wifi-config", methods=["POST"])
 def set_wifi_config():
     try:
-        data = request.get_json(force=True)
-        ssid = str(data.get("ssid", "")).strip()
+        data     = request.get_json(force=True)
+        ssid     = str(data.get("ssid", "")).strip()
         password = str(data.get("password", "")).strip()
-        
+
         if not ssid or not password:
             return jsonify({"ok": False, "error": "SSID and Password cannot be empty."}), 400
-        
+
         with _wifi_lock:
             config = {
                 "ssid": ssid,
                 "password": password,
                 "configured": True,
-                "pending_update": True, 
+                "pending_update": True,
                 "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
             with open(WIFI_CONFIG_JSON, "w") as f:
                 json.dump(config, f, indent=2)
-        
+
         return jsonify({
             "ok": True,
-            "message": f"WiFi config saved. Upload this configuration to your ESP32.",
+            "message": "WiFi config saved. Upload this configuration to your ESP32.",
             "ssid": ssid,
             "last_updated": config["last_updated"],
         }), 200
