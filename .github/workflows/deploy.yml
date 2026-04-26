@@ -1,0 +1,36 @@
+name: Deploy WEMO MLOps Backend to EC2
+
+on:
+  push:
+    branches:
+      - main 
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Create directory if it doesn't exist
+            mkdir -p /home/ubuntu/wemo-mlops-pipeline
+            cd /home/ubuntu/wemo-mlops-pipeline
+            
+            # If not a git repo, clone it. Otherwise, pull latest.
+            if [ ! -d ".git" ]; then
+              git clone https://github.com/ZeroCipherX/wemo-mlops-pipeline.git .
+            else
+              git pull origin main
+            fi
+            
+            # Rebuild and launch in background
+            sudo docker-compose down
+            sudo docker-compose up -d --build
+            
+            # Clean up old images
+            sudo docker image prune -f
