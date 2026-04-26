@@ -524,6 +524,49 @@ def ingest():
             if power < NO_LOAD_RECORD_THRESHOLD and _unk["phase"] in ("stabilizing", "alerted", "recording"):
                 _reset_unk_locked()
 
+            # ── RECORDING phase: collect training samples ──────────────────────
+            # ⚠️  This MUST come before the anomaly branch. While recording, the
+            # KNN will return is_anomaly=True for every packet (the model hasn't
+            # seen this appliance yet — that's the whole reason we're training it).
+            # If the anomaly elif came first it would match every packet and this
+            # branch would never execute, leaving the count permanently at 0/30.
+            elif _unk["phase"] == "recording":
+                _unk["readings"].append({
+                    "power_W":      round(power, 3),
+                    "power_factor": round(pf, 4),
+                })
+
+                if len(_unk["readings"]) >= RECORD_TARGET:
+                    name = _unk["pending_name"]
+                    pws  = [r["power_W"] for r in _unk["readings"]]
+                    power_rep = float(np.median(pws))
+
+                    # Append to training CSV
+                    new_rows = [
+                        {"power_W": r["power_W"], "power_factor": r["power_factor"], "appliance": name}
+                        for r in _unk["readings"]
+                    ]
+                    fe = os.path.exists(TRAINING_CSV)
+                    with open(TRAINING_CSV, "a", newline="") as f:
+                        w = csv.DictWriter(f, fieldnames=TRAINING_FIELDNAMES)
+                        if not fe:
+                            w.writeheader()
+                        w.writerows(new_rows)
+
+                    # Dynamically update health thresholds for the new appliance
+                    cfg = read_wemo_config()
+                    if name not in cfg.get("health_thresholds", {}):
+                        lo = round(max(1.0, power_rep * 0.60), 1)
+                        hi = round(power_rep * 1.40, 1)
+                        cfg.setdefault("health_thresholds", {})[name] = [lo, hi]
+                        with _config_lock:
+                            with open(WEMO_CONFIG_FILE, "w") as f:
+                                json.dump(cfg, f, indent=4)
+
+                    _reset_unk_locked()
+                    reset_smoother()
+                    threading.Thread(target=retrain_model, daemon=True).start()
+
             # ── STABILIZING phase: accumulate readings, then decide ────────────
             elif knn_result["is_anomaly"] and power > NO_LOAD_RECORD_THRESHOLD:
 
@@ -576,50 +619,12 @@ def ingest():
                                   f"{STABILITY_VARIANCE_MAX} W. Treating as noise, resetting.")
                             _reset_unk_locked()
 
-                # If already alerted/recording, anomaly readings are expected — no action needed
+                # alerted phase: anomaly is expected while waiting for user to name it — no action
 
             # ── Guard 2: KNN now recognises the load during stability window ───
             elif not knn_result["is_anomaly"] and _unk["phase"] == "stabilizing":
                 print(f"[STABILITY] Load identified as '{knn_result['label']}' during window. Aborting.")
                 _reset_unk_locked()
-
-            # ── RECORDING phase: collect training samples ─────────────────────
-            elif _unk["phase"] == "recording":
-                _unk["readings"].append({
-                    "power_W":      round(power, 3),
-                    "power_factor": round(pf, 4),
-                })
-
-                if len(_unk["readings"]) >= RECORD_TARGET:
-                    name = _unk["pending_name"]
-                    pws  = [r["power_W"] for r in _unk["readings"]]
-                    power_rep = float(np.median(pws))
-
-                    # Append to training CSV
-                    new_rows = [
-                        {"power_W": r["power_W"], "power_factor": r["power_factor"], "appliance": name}
-                        for r in _unk["readings"]
-                    ]
-                    fe = os.path.exists(TRAINING_CSV)
-                    with open(TRAINING_CSV, "a", newline="") as f:
-                        w = csv.DictWriter(f, fieldnames=TRAINING_FIELDNAMES)
-                        if not fe:
-                            w.writeheader()
-                        w.writerows(new_rows)
-
-                    # Dynamically update health thresholds for the new appliance
-                    cfg = read_wemo_config()
-                    if name not in cfg.get("health_thresholds", {}):
-                        lo = round(max(1.0, power_rep * 0.60), 1)
-                        hi = round(power_rep * 1.40, 1)
-                        cfg.setdefault("health_thresholds", {})[name] = [lo, hi]
-                        with _config_lock:
-                            with open(WEMO_CONFIG_FILE, "w") as f:
-                                json.dump(cfg, f, indent=4)
-
-                    _reset_unk_locked()
-                    reset_smoother()
-                    threading.Thread(target=retrain_model, daemon=True).start()
 
         # ─── Build UI text from current phase ─────────────────────────────────
         faults = analyse_faults(v, i, power, pf)
