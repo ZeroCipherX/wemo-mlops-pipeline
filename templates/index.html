@@ -1,0 +1,2526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>WEMO Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<style>
+/* ─── Design Tokens ─────────────────────────────── */
+:root {
+  --blue:       #0047AB;
+  --blue-light: #E8F0FE;
+  --blue-mid:   #2563EB;
+  --teal:       #0891B2;
+  --green:      #059669;
+  --green-bg:   #ECFDF5;
+  --amber:      #D97706;
+  --amber-bg:   #FFFBEB;
+  --red:        #DC2626;
+  --red-bg:     #FEF2F2;
+  --purple:     #7C3AED;
+  --purple-bg:  #F5F3FF;
+  --slate-50:   #F8FAFC;
+  --slate-100:  #F1F5F9;
+  --slate-200:  #E2E8F0;
+  --slate-300:  #CBD5E1;
+  --slate-400:  #94A3B8;
+  --slate-500:  #64748B;
+  --slate-700:  #334155;
+  --slate-900:  #0F172A;
+  --white:      #FFFFFF;
+  --radius:     10px;
+  --shadow-sm:  0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.05);
+  --shadow:     0 4px 12px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.05);
+  --shadow-lg:  0 10px 30px rgba(0,0,0,.10), 0 4px 8px rgba(0,0,0,.06);
+  --font:       'IBM Plex Sans', sans-serif;
+  --mono:       'IBM Plex Mono', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font);
+  background: var(--slate-50);
+  color: var(--slate-700);
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ─── Top Nav ────────────────────────────────────── */
+.nav {
+  background: var(--white);
+  border-bottom: 1px solid var(--slate-200);
+  padding: 0 20px;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: var(--shadow-sm);
+}
+.nav-brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.nav-logo {
+  width: 34px; height: 34px;
+  background: var(--blue);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.nav-logo svg { width: 18px; height: 18px; }
+.nav-title { font-size: 15px; font-weight: 700; color: var(--slate-900); letter-spacing: -.3px; }
+.nav-subtitle { font-size: 11px; color: var(--slate-400); letter-spacing: .3px; text-transform: uppercase; font-weight: 500; }
+.nav-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.live-badge {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; color: var(--green);
+  background: var(--green-bg); border: 1px solid #A7F3D0;
+  border-radius: 20px; padding: 4px 12px;
+}
+.live-dot { width: 7px; height: 7px; background: var(--green); border-radius: 50%; animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(0.7)} }
+.nav-time { font-family: var(--mono); font-size: 12px; color: var(--slate-400); }
+
+/* ─── Layout ─────────────────────────────────────── */
+.page { max-width: 1280px; margin: 0 auto; padding: 20px 16px 48px; }
+@media(min-width:600px){ .page { padding: 28px 28px 48px; } }
+.section-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 1.2px;
+  text-transform: uppercase; color: var(--slate-400); margin-bottom: 12px;
+}
+
+/* ─── Alert Banner ───────────────────────────────── */
+.alert-bar {
+  display: none; align-items: center; gap: 12px;
+  padding: 13px 18px; border-radius: var(--radius); margin-bottom: 22px;
+  border: 1.5px solid; font-size: 13.5px; font-weight: 500;
+  animation: slideIn .3s ease;
+}
+.alert-bar.danger  { background: var(--red-bg);   border-color: #FECACA; color: var(--red); }
+.alert-bar.warning { background: var(--amber-bg); border-color: #FDE68A; color: var(--amber); }
+.alert-bar.normal  { background: var(--green-bg); border-color: #A7F3D0; color: var(--green); }
+.alert-bar.show    { display: flex; }
+@keyframes slideIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+.alert-icon { font-size: 18px; flex-shrink: 0; }
+
+/* ─── Telemetry Grid ─────────────────────────────── */
+.tele-grid {
+  display: grid; grid-template-columns: repeat(6,1fr); gap: 14px; margin-bottom: 22px;
+}
+@media(max-width:1024px){.tele-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:600px) {.tele-grid{grid-template-columns:repeat(2,1fr)}}
+
+.tele-card {
+  background: var(--white); border: 1px solid var(--slate-200);
+  border-radius: var(--radius); padding: 16px 18px;
+  box-shadow: var(--shadow-sm); transition: box-shadow .2s;
+  position: relative; overflow: hidden;
+}
+.tele-card::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:3px;
+  background:var(--accent, var(--slate-200)); border-radius:var(--radius) var(--radius) 0 0;
+}
+.tele-card:hover { box-shadow: var(--shadow); }
+.tele-label {
+  font-size: 10.5px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--slate-400); margin-bottom: 8px;
+}
+.tele-value { font-family: var(--mono); font-size: 26px; font-weight: 600; color: var(--slate-900); line-height: 1; transition: color .3s; }
+.tele-unit  { font-size: 11px; font-weight: 500; color: var(--slate-400); margin-top: 5px; }
+.tele-bar   { height: 3px; background: var(--slate-100); border-radius: 3px; margin-top: 10px; overflow: hidden; }
+.tele-bar-fill { height: 100%; border-radius: 3px; background: var(--accent, var(--blue)); transition: width .6s ease; width: 0%; }
+
+.card-v  {--accent:#F59E0B} .card-i  {--accent:#8B5CF6}
+.card-p  {--accent:#2563EB} .card-e  {--accent:#F97316}
+.card-hz {--accent:#0891B2} .card-pf {--accent:#059669}
+
+/* ─── Fault highlight ────────────────────────────── */
+.tele-card.fault-danger {
+  border-color: var(--red) !important; background: var(--red-bg) !important;
+  animation: cardPulse 1.2s infinite;
+}
+.tele-card.fault-danger .tele-value { color: var(--red); }
+@keyframes cardPulse {
+  0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,0)} 50%{box-shadow:0 0 0 6px rgba(220,38,38,.18)}
+}
+
+/* ─── Main 2-col layout ─────────────────────────── */
+.main-cols { display: grid; grid-template-columns: 1fr 360px; gap: 18px; }
+@media(max-width:900px){.main-cols{grid-template-columns:1fr}}
+
+/* ─── Card base ──────────────────────────────────── */
+.card { background: var(--white); border: 1px solid var(--slate-200); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+.card-header { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:16px 20px; border-bottom:1px solid var(--slate-100); }
+.card-title  { font-size:13px; font-weight:700; color:var(--slate-900); display:flex; align-items:center; gap:8px; }
+.card-title-icon { width:26px;height:26px;border-radius:6px;background:var(--blue-light);display:flex;align-items:center;justify-content:center;font-size:14px; }
+.card-body { padding: 20px; }
+
+/* ─── Chart ──────────────────────────────────────── */
+.chart-wrap { position: relative; height: 220px; }
+
+/* ─── AI Panel ───────────────────────────────────── */
+.ai-status-ring {
+  width: 96px; height: 96px; border-radius: 50%;
+  margin: 0 auto 16px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 36px;
+  border: 3px solid var(--slate-200); background: var(--slate-50);
+  transition: border-color .25s, background .25s;
+  position: relative;
+}
+.ai-status-ring::after {
+  content:''; position:absolute; inset:-6px; border-radius:50%;
+  border:2px solid transparent; transition:border-color .25s;
+}
+.ai-status-ring.normal  { border-color:var(--green);  background:var(--green-bg); }
+.ai-status-ring.normal::after  { border-color:#A7F3D0; }
+.ai-status-ring.warning { border-color:var(--amber);  background:var(--amber-bg); }
+.ai-status-ring.warning::after { border-color:#FDE68A; animation:ringPulse 1.5s infinite; }
+.ai-status-ring.danger  { border-color:var(--red);    background:var(--red-bg); }
+.ai-status-ring.danger::after  { border-color:#FECACA; animation:ringPulse 1s infinite; }
+@keyframes ringPulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+.ai-device-name { text-align:center; font-size:15px; font-weight:700; color:var(--slate-900); margin-bottom:4px; transition: color .2s; }
+.ai-health-msg  { text-align:center; font-size:12px; color:var(--slate-500); line-height:1.5; margin-bottom:12px; min-height:36px; }
+.ai-dist        { text-align:center; font-family:var(--mono); font-size:11px; color:var(--slate-400); margin-bottom:14px; }
+
+/* ─── Recording progress panel ───────────────────── */
+.rec-panel {
+  display: none;
+  background: var(--amber-bg);
+  border: 1px solid #FDE68A;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.rec-panel.show { display: block; }
+.rec-panel.phase-ready { background: var(--red-bg); border-color: #FECACA; }
+
+.rec-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.rec-label {
+  font-size: 11.5px; font-weight: 700; color: var(--amber);
+  display: flex; align-items: center; gap: 6px; letter-spacing: .3px;
+}
+.rec-panel.phase-ready .rec-label { color: var(--red); }
+.rec-count { font-family: var(--mono); font-size: 11px; color: var(--slate-500); }
+.rec-bar-track {
+  height: 5px; background: rgba(0,0,0,.08); border-radius: 3px; overflow: hidden;
+}
+.rec-bar-fill {
+  height: 100%; background: var(--amber);
+  border-radius: 3px; transition: width .4s ease;
+}
+.rec-panel.phase-ready .rec-bar-fill { background: var(--red); width: 100% !important; }
+
+/* ─── Form + buttons ─────────────────────────────── */
+.divider { border:none; border-top:1px solid var(--slate-100); margin:16px 0; }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
+.form-field label {
+  display:block; font-size:10.5px; font-weight:700; letter-spacing:.8px;
+  text-transform:uppercase; color:var(--slate-400); margin-bottom:5px;
+}
+.form-field input {
+  width:100%; padding:9px 12px; border:1.5px solid var(--slate-200);
+  border-radius:7px; font-family:var(--mono); font-size:13px; color:var(--slate-900);
+  background:var(--white); outline:none; transition:border-color .2s;
+}
+.form-field input:focus { border-color: var(--blue-mid); }
+
+.btn-analyze {
+  width:100%; padding:10px; background:var(--blue); color:var(--white);
+  font-family:var(--font); font-size:13px; font-weight:700; letter-spacing:.3px;
+  border:none; border-radius:7px; cursor:pointer; transition:background .2s, transform .1s;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+}
+.btn-analyze:hover  { background:var(--blue-mid); }
+.btn-analyze:active { transform:scale(.98); }
+
+/* ─── RSSI bar ───────────────────────────────────── */
+.rssi-wrap  { display:flex; align-items:center; gap:8px; margin-top:14px; }
+.rssi-label { font-size:11px; color:var(--slate-400); font-weight:600; width:40px; }
+.rssi-track { flex:1; height:5px; background:var(--slate-100); border-radius:3px; overflow:hidden; }
+.rssi-fill  { height:100%; border-radius:3px; background:var(--blue); transition:width .6s; }
+.rssi-val   { font-family:var(--mono); font-size:11px; color:var(--slate-400); width:46px; text-align:right; }
+
+/* ─── Responsive adjustments ─────────────────────── */
+@media(max-width:1200px) {
+  .nav { flex-wrap: wrap; }
+  .nav-right { flex: 1 1 100%; margin-top: 8px; justify-content: space-between; }
+}
+
+@media(max-width:768px) {
+  .page { padding: 16px 12px 40px; }
+  .nav-right { flex-direction: column; gap: 6px; }
+  .relay-nav-ctrl { width: 100%; }
+  .relay-hw-btn { flex: 1; }
+  .health-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+  .tele-grid { gap: 10px; }
+  .tele-card { padding: 12px 14px; }
+  .tele-label { font-size: 9.5px; }
+  .tele-value { font-size: 20px; }
+  .main-cols { gap: 12px; }
+  .chart-wrap { height: 160px; }
+  .modal-box { width: 95vw; padding: 20px; }
+  .bill-box { width: 95vw; padding: 18px; }
+  .ai-modal-box { width: 95vw; padding: 20px; }
+  .train-table { font-size: 10px; }
+  .train-table th, .train-table td { padding: 4px 6px; }
+}
+
+@media(max-width:540px) {
+  body { font-size: 13px; }
+  .page { padding: 12px 10px 32px; }
+  .nav { padding: 0 10px; min-height: 50px; }
+  .nav-title { font-size: 13px; }
+  .nav-subtitle { font-size: 9px; }
+  .section-label { font-size: 9px; margin-bottom: 10px; }
+  .health-grid { grid-template-columns: 1fr; gap: 8px; }
+  .tele-grid { grid-template-columns: 1fr; gap: 8px; }
+  .tele-card { padding: 10px 12px; }
+  .tele-value { font-size: 18px; }
+  .tele-unit { font-size: 9px; }
+  .card { border-radius: 8px; }
+  .card-body { padding: 14px; }
+  .card-header { flex-direction: column; align-items: flex-start; padding: 12px 14px; gap: 6px; }
+  .card-title { font-size: 12px; }
+  .btn-analyze { padding: 8px; font-size: 12px; }
+  .btn-train { font-size: 11px; padding: 8px; }
+  .form-row { grid-template-columns: 1fr; gap: 8px; margin-bottom: 10px; }
+  .form-field input { padding: 8px 10px; font-size: 12px; }
+  .divider { margin: 12px 0; }
+  .modal-box { width: 95vw; max-width: none; padding: 16px; }
+  .bill-box { width: 95vw; max-width: none; padding: 14px; }
+  .ai-modal-box { width: 95vw; max-width: none; padding: 16px; }
+  .rssi-wrap { margin-top: 8px; gap: 6px; }
+  .rssi-label { width: 35px; font-size: 10px; }
+  .rssi-val { width: 42px; font-size: 10px; }
+  .ai-snapshot { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .ai-snap-chip { padding: 6px 8px; }
+  .ai-snap-val { font-size: 12px; }
+  .nav-uptime { font-size: 10px; }
+  .live-badge { font-size: 11px; padding: 3px 10px; }
+  .relay-state-badge { font-size: 10px; padding: 3px 9px; }
+  .relay-hw-btn { font-size: 10px; padding: 3px 10px; }
+  .footer { font-size: 9px; }
+}
+
+@media(max-width:360px) {
+  .page { padding: 10px 8px 28px; }
+  .nav { padding: 0 8px; }
+  .nav-brand { gap: 6px; }
+  .nav-logo { width: 28px; height: 28px; }
+  .nav-title { font-size: 12px; }
+  .health-grid { gap: 6px; }
+  .health-icon { font-size: 18px; }
+  .health-lbl { font-size: 8px; }
+  .tele-value { font-size: 16px; }
+  .card-header { padding: 10px 12px; }
+  .modal-title { font-size: 13px; }
+  .btn-analyze, .btn-train { font-size: 11px; padding: 7px; }
+  .form-field input { font-size: 11px; }
+}
+
+/* ─── Name-load modal ────────────────────────────── */
+.modal-overlay {
+  display:none; position:fixed; inset:0;
+  background:rgba(15,23,42,.55); backdrop-filter:blur(3px);
+  z-index:200; align-items:center; justify-content:center;
+}
+.modal-overlay.show { display:flex; }
+.modal-box {
+  background:var(--white); border-radius:14px; padding:28px 26px;
+  width:380px; max-width:92vw;
+  box-shadow:var(--shadow-lg); animation:slideIn .25s ease;
+}
+.modal-title { font-size:15px; font-weight:700; color:var(--slate-900); margin-bottom:6px; }
+.modal-sub   { font-size:12px; color:var(--slate-500); margin-bottom:18px; line-height:1.5; }
+.modal-meta  { display:flex; gap:10px; margin-bottom:16px; }
+.modal-chip  { flex:1; padding:8px 10px; background:var(--slate-50); border:1px solid var(--slate-200); border-radius:8px; text-align:center; }
+.modal-chip-label { font-size:10px; color:var(--slate-400); font-weight:700; text-transform:uppercase; letter-spacing:.7px; }
+.modal-chip-val   { font-family:var(--mono); font-size:14px; font-weight:600; color:var(--slate-900); margin-top:2px; }
+.modal-input {
+  width:100%; padding:10px 13px; border:1.5px solid var(--slate-200);
+  border-radius:8px; font-family:var(--font); font-size:13px; color:var(--slate-900);
+  outline:none; margin-bottom:14px; transition:border-color .2s;
+}
+.modal-input:focus { border-color:var(--blue-mid); }
+.modal-btns { display:flex; gap:10px; }
+.modal-btn-save {
+  flex:1; padding:10px; background:var(--blue); color:#fff;
+  font-family:var(--font); font-size:13px; font-weight:700;
+  border:none; border-radius:8px; cursor:pointer; transition:background .2s;
+}
+.modal-btn-save:hover { background:var(--blue-mid); }
+.modal-btn-cancel {
+  padding:10px 16px; background:var(--slate-100); color:var(--slate-500);
+  font-family:var(--font); font-size:13px; font-weight:600;
+  border:none; border-radius:8px; cursor:pointer; transition:background .2s;
+}
+.modal-btn-cancel:hover { background:var(--slate-200); }
+
+/* ─── Training data table ────────────────────────── */
+.train-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.train-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:10px; min-width: 400px; }
+.train-table th {
+  text-align:left; padding:6px 10px; background:var(--slate-50);
+  color:var(--slate-400); font-size:10px; font-weight:700; letter-spacing:.8px;
+  text-transform:uppercase; border-bottom:1px solid var(--slate-200);
+}
+.train-table td {
+  padding:7px 10px; border-bottom:1px solid var(--slate-100);
+  color:var(--slate-700); font-family:var(--mono); font-size:12px;
+}
+.train-table tr:last-child td { border-bottom:none; }
+.train-table tr:hover td { background:var(--slate-50); }
+
+/* ─── Train New Appliance button ─────────────────── */
+.btn-train {
+  width:100%; padding:10px; margin-top:10px;
+  background: #fff; color: var(--blue-mid);
+  font-family:var(--font); font-size:13px; font-weight:700; letter-spacing:.3px;
+  border: 2px solid var(--blue-mid); border-radius:7px; cursor:pointer;
+  transition:all .2s; display:flex; align-items:center; justify-content:center; gap:8px;
+}
+.btn-train:hover  { background:var(--blue-mid); color:#fff; }
+.btn-train:active { transform:scale(.98); }
+.btn-train:disabled { opacity:.5; cursor:not-allowed; }
+
+.btn-cancel-train {
+  font-size:11px; padding:3px 10px; border-radius:6px;
+  border:1px solid rgba(0,0,0,.15); background:rgba(0,0,0,.06);
+  color:var(--slate-600); cursor:pointer; font-weight:600; transition:all .2s;
+}
+.btn-cancel-train:hover { background:rgba(0,0,0,.12); }
+
+/* ─── Reset button ───────────────────────────────── */
+.btn-reset {
+  font-size:11px; padding:5px 12px; border-radius:6px;
+  border:1.5px solid #FECACA; background:var(--red-bg);
+  color:var(--red); cursor:pointer; font-weight:600;
+  transition:all .2s; display:flex; align-items:center; gap:5px;
+}
+.btn-reset:hover { background:var(--red); color:#fff; border-color:var(--red); }
+
+/* ─── Reset confirm banner ───────────────────────── */
+.reset-confirm {
+  display:none; background:var(--red-bg); border:1.5px solid #FECACA;
+  border-radius:8px; padding:14px 16px; margin:12px 20px;
+  font-size:13px; color:var(--red);
+}
+.reset-confirm.show { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap: wrap; }
+.reset-confirm-text { line-height:1.4; flex:1 1 200px; }
+.reset-confirm-btns { display:flex; gap:8px; flex-shrink:0; }
+.btn-reset-confirm {
+  padding:7px 14px; background:var(--red); color:#fff;
+  font-size:12px; font-weight:700; border:none; border-radius:6px; cursor:pointer;
+}
+.btn-reset-cancel {
+  padding:7px 14px; background:var(--slate-100); color:var(--slate-500);
+  font-size:12px; font-weight:600; border:none; border-radius:6px; cursor:pointer;
+}
+
+/* ─── Nav Relay Controls ─────────────────────────── */
+.relay-nav-ctrl { display:flex; align-items:center; gap:7px; }
+.relay-state-badge {
+  font-size:11.5px; font-weight:700; padding:4px 11px;
+  border-radius:20px; border:1.5px solid; transition:all .3s; white-space:nowrap;
+}
+.relay-state-badge.on  { color:var(--green);  border-color:var(--green);  background:var(--green-bg); }
+.relay-state-badge.off { color:var(--slate-400); border-color:var(--slate-300); background:var(--slate-100); }
+.relay-btn-pair { display:flex; gap:4px; }
+.relay-hw-btn {
+  font-size:11.5px; font-weight:700; padding:4px 13px;
+  border-radius:20px; border:none; cursor:pointer;
+  font-family:var(--font); transition:all .15s;
+}
+.relay-hw-btn.ron  { background:var(--green); color:#fff; }
+.relay-hw-btn.ron:hover  { background:#047857; }
+.relay-hw-btn.roff { background:var(--red);   color:#fff; }
+.relay-hw-btn.roff:hover { background:#b91c1c; }
+.relay-hw-btn:active { transform:scale(.93); }
+.relay-hw-btn:disabled { opacity:.45; cursor:not-allowed; }
+.nav-uptime { font-family:var(--mono); font-size:11.5px; color:var(--slate-400); }
+
+/* ─── System Health Grid ─────────────────────────── */
+.health-grid {
+  display:grid; grid-template-columns:repeat(6,1fr); gap:12px; margin-bottom:22px;
+}
+@media(max-width:1024px){.health-grid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:540px) {.health-grid{grid-template-columns:repeat(2,1fr)}}
+.health-card {
+  background:var(--white); border:1.5px solid var(--slate-200);
+  border-radius:var(--radius); padding:14px 10px;
+  display:flex; flex-direction:column; align-items:center; gap:5px;
+  box-shadow:var(--shadow-sm); transition:all .35s;
+  position:relative; overflow:hidden;
+}
+.health-card::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:3px;
+  background:var(--hc-accent, var(--slate-200));
+  border-radius:var(--radius) var(--radius) 0 0;
+}
+.health-card.hc-ok   { --hc-accent:var(--green); border-color:#A7F3D0; background:linear-gradient(160deg,#F0FDF4 0%,var(--white) 55%); }
+.health-card.hc-err  { --hc-accent:var(--red);   border-color:#FECACA; background:linear-gradient(160deg,#FFF0F0 0%,var(--white) 55%); animation:cardPulse 1.5s infinite; }
+.health-card.hc-warn { --hc-accent:var(--amber); border-color:#FDE68A; background:linear-gradient(160deg,#FFFBEB 0%,var(--white) 55%); }
+.health-card.hc-idle { --hc-accent:var(--slate-300); }
+.health-icon  { font-size:22px; line-height:1; margin-top:2px; }
+.health-lbl   { font-size:10px; font-weight:700; letter-spacing:.9px; text-transform:uppercase; color:var(--slate-400); text-align:center; }
+.health-badge {
+  font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:20px;
+  display:flex; align-items:center; gap:4px;
+}
+.hc-ok   .health-badge { background:#D1FAE5; color:var(--green); }
+.hc-err  .health-badge { background:#FEE2E2; color:var(--red); }
+.hc-warn .health-badge { background:#FEF3C7; color:var(--amber); }
+.hc-idle .health-badge { background:var(--slate-100); color:var(--slate-400); }
+.health-dot-sm { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.hc-ok   .health-dot-sm { background:var(--green); }
+.hc-err  .health-dot-sm { background:var(--red);   animation:pulse 1s infinite; }
+.hc-warn .health-dot-sm { background:var(--amber); animation:pulse 2s infinite; }
+.hc-idle .health-dot-sm { background:var(--slate-300); }
+.health-detail { font-size:10px; color:var(--slate-400); text-align:center; line-height:1.3; margin-top:1px; }
+
+/* ─── Bill Modal ─────────────────────────────────── */
+.bill-overlay {
+  display:none; position:fixed; inset:0;
+  background:rgba(15,23,42,.55); backdrop-filter:blur(3px);
+  z-index:300; align-items:center; justify-content:center;
+}
+.bill-overlay.show { display:flex; }
+.bill-box {
+  background:var(--white); border-radius:14px; padding:26px 24px;
+  width:460px; max-width:95vw;
+  box-shadow:var(--shadow-lg); animation:slideIn .25s ease;
+  max-height:90vh; overflow-y:auto;
+}
+.bill-title  { font-size:15px; font-weight:700; color:var(--slate-900); margin-bottom:3px; }
+.bill-sub    { font-size:11.5px; color:var(--slate-400); margin-bottom:14px; line-height:1.5; }
+.bill-chips  { display:flex; gap:10px; margin-bottom:14px; }
+.bill-chip   { flex:1; padding:10px 8px; background:var(--slate-50); border:1px solid var(--slate-200); border-radius:8px; text-align:center; }
+.bill-chip-lbl { font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.7px; color:var(--slate-400); }
+.bill-chip-val { font-family:var(--mono); font-size:16px; font-weight:700; color:var(--slate-900); margin-top:2px; }
+.bill-breakdown { width:100%; border-collapse:collapse; margin-bottom:10px; }
+.bill-breakdown th { text-align:left; padding:6px 8px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--slate-400); border-bottom:1.5px solid var(--slate-200); }
+.bill-breakdown td { padding:7px 8px; font-size:12.5px; border-bottom:1px solid var(--slate-100); color:var(--slate-600); }
+.bill-breakdown td:last-child { text-align:right; font-family:var(--mono); font-weight:600; color:var(--slate-800); }
+.bill-total-bar {
+  display:flex; justify-content:space-between; align-items:center;
+  padding:13px 16px; background:var(--blue-light); border-radius:9px; margin-bottom:10px;
+}
+.bill-total-bar span:first-child { font-size:13px; font-weight:700; color:var(--blue); }
+.bill-total-bar span:last-child  { font-family:var(--mono); font-size:20px; font-weight:700; color:var(--blue); }
+.bill-slabs { width:100%; border-collapse:collapse; margin-bottom:10px; font-size:11px; }
+.bill-slabs th { text-align:left; padding:5px 8px; background:var(--slate-50); color:var(--slate-400); font-size:9.5px; font-weight:700; text-transform:uppercase; }
+.bill-slabs td { padding:5px 8px; border-top:1px solid var(--slate-100); color:var(--slate-600); }
+.bill-slabs td:last-child { text-align:right; font-family:var(--mono); }
+.bill-slabs .active-slab td { background:var(--blue-light); color:var(--blue); font-weight:700; }
+.bill-note {
+  font-size:10.5px; color:var(--amber); line-height:1.5;
+  padding:8px 10px; background:var(--amber-bg); border-radius:7px;
+  border:1px solid #FDE68A; margin-bottom:12px;
+}
+.btn-get-bill {
+  padding:6px 14px; background:var(--green); color:#fff;
+  font-family:var(--font); font-size:12px; font-weight:700;
+  border:none; border-radius:7px; cursor:pointer;
+  display:inline-flex; align-items:center; gap:6px;
+  transition:background .2s; white-space: nowrap;
+}
+.btn-get-bill:hover { background:#047857; }
+.btn-bill-close {
+  width:100%; padding:9px; background:var(--slate-100); color:var(--slate-500);
+  font-family:var(--font); font-size:13px; font-weight:600;
+  border:none; border-radius:7px; cursor:pointer; transition:background .2s; margin-top:8px;
+}
+.btn-bill-close:hover { background:var(--slate-200); }
+
+/* ─── WEMO Tech AI Button ────────────────────────── */
+.btn-wemo-ai {
+  padding:6px 14px; background:var(--purple); color:#fff;
+  font-family:var(--font); font-size:12px; font-weight:700;
+  border:none; border-radius:7px; cursor:pointer;
+  display:inline-flex; align-items:center; gap:6px;
+  transition:background .2s; white-space:nowrap;
+}
+.btn-wemo-ai:hover { background:#6D28D9; }
+
+/* ─── WEMO Tech AI Modal ─────────────────────────── */
+.ai-modal-overlay {
+  display:none; position:fixed; inset:0;
+  background:rgba(15,23,42,.6); backdrop-filter:blur(4px);
+  z-index:400; align-items:center; justify-content:center;
+}
+.ai-modal-overlay.show { display:flex; }
+.ai-modal-box {
+  background:var(--white); border-radius:16px; padding:28px 26px;
+  width:540px; max-width:95vw; max-height:90vh; overflow-y:auto;
+  box-shadow:var(--shadow-lg); animation:slideIn .25s ease;
+}
+.ai-modal-header {
+  display:flex; align-items:center; gap:12px; margin-bottom:6px;
+}
+.ai-modal-logo {
+  width:38px; height:38px; border-radius:10px;
+  background:linear-gradient(135deg,#7C3AED,#2563EB);
+  display:flex; align-items:center; justify-content:center;
+  font-size:20px; flex-shrink:0;
+}
+.ai-modal-title { font-size:16px; font-weight:700; color:var(--slate-900); }
+.ai-modal-sub   { font-size:11.5px; color:var(--slate-400); margin-bottom:16px; line-height:1.5; }
+
+.ai-snapshot {
+  display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:16px;
+}
+.ai-snap-chip {
+  background:var(--slate-50); border:1px solid var(--slate-200);
+  border-radius:8px; padding:9px 10px; text-align:center;
+}
+.ai-snap-lbl { font-size:9.5px; font-weight:700; text-transform:uppercase; letter-spacing:.7px; color:var(--slate-400); }
+.ai-snap-val { font-family:var(--mono); font-size:14px; font-weight:700; color:var(--slate-900); margin-top:2px; }
+
+.ai-result-box {
+  background:var(--purple-bg); border:1px solid #DDD6FE;
+  border-radius:10px; padding:16px;
+  font-size:13px; line-height:1.8; color:var(--slate-700);
+  white-space:pre-wrap; min-height:100px; margin-bottom:14px;
+  font-family:var(--font);
+}
+.ai-result-box.loading { color:var(--slate-400); font-style:italic; }
+
+.ai-section-label {
+  font-size:10px; font-weight:700; letter-spacing:1px;
+  text-transform:uppercase; color:var(--purple);
+  margin-top:10px; margin-bottom:2px;
+}
+
+.ai-cost-strip {
+  display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;
+}
+.ai-cost-chip {
+  background:linear-gradient(135deg,#F5F3FF,#EDE9FE);
+  border:1px solid #DDD6FE; border-radius:10px;
+  padding:12px 14px; text-align:center;
+}
+.ai-cost-lbl { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.7px; color:var(--purple); }
+.ai-cost-val { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--purple); margin-top:3px; }
+.ai-cost-sub { font-size:10px; color:var(--slate-400); margin-top:1px; }
+
+.btn-run-ai {
+  width:100%; padding:12px; margin-bottom:8px;
+  background:linear-gradient(135deg,#7C3AED,#2563EB); color:#fff;
+  font-family:var(--font); font-size:13.5px; font-weight:700;
+  border:none; border-radius:9px; cursor:pointer;
+  transition:opacity .2s, transform .1s;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+}
+.btn-run-ai:hover    { opacity:.9; }
+.btn-run-ai:active   { transform:scale(.98); }
+.btn-run-ai:disabled { opacity:.55; cursor:not-allowed; }
+.ai-status-dot {
+  width:8px; height:8px; border-radius:50%; background:#A78BFA;
+  animation:pulse 1.2s infinite;
+}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-brand">
+    <div class="nav-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+      </svg>
+    </div>
+    <div>
+      <div class="nav-title">WEMO Command Center</div>
+      <div class="nav-subtitle">Real-Time Energy Intelligence</div>
+    </div>
+  </div>
+  <div class="nav-right">
+    <div class="live-badge"><span class="live-dot"></span> Live</div>
+    <div class="nav-uptime">⏱ <span id="navUptime">—</span></div>
+    <div class="relay-nav-ctrl">
+      <span class="relay-state-badge off" id="relayStateBadge">● Relay OFF</span>
+      <div class="relay-btn-pair">
+        <button class="relay-hw-btn ron"  id="btnRelayOn"  onclick="setRelay('ON')">ON</button>
+        <button class="relay-hw-btn roff" id="btnRelayOff" onclick="setRelay('OFF')">OFF</button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div class="page">
+
+  <div class="alert-bar" id="alertBar">
+    <span class="alert-icon" id="alertIcon">⚠</span>
+    <span id="alertMsg">—</span>
+  </div>
+
+  <p class="section-label">System Health</p>
+  <div class="health-grid">
+    <div class="health-card hc-idle" id="hc-esp32">
+      <div class="health-icon">🖥️</div>
+      <div class="health-lbl">ESP32</div>
+      <div class="health-badge"><span class="health-dot-sm"></span><span id="hc-esp32-txt">Waiting</span></div>
+      <div class="health-detail" id="hc-esp32-det">—</div>
+    </div>
+    <div class="health-card hc-idle" id="hc-pzem">
+      <div class="health-icon">⚡</div>
+      <div class="health-lbl">PZEM Sensor</div>
+      <div class="health-badge"><span class="health-dot-sm"></span><span id="hc-pzem-txt">Waiting</span></div>
+      <div class="health-detail" id="hc-pzem-det">—</div>
+    </div>
+    <div class="health-card hc-idle" id="hc-relay">
+      <div class="health-icon">🔌</div>
+      <div class="health-lbl">Relay</div>
+      <div class="health-badge"><span class="health-dot-sm"></span><span id="hc-relay-txt">Waiting</span></div>
+      <div class="health-detail" id="hc-relay-det">—</div>
+    </div>
+    <div class="health-card hc-idle" id="hc-wifi">
+      <div class="health-icon">📶</div>
+      <div class="health-lbl">WiFi / Net</div>
+      <div class="health-badge"><span class="health-dot-sm"></span><span id="hc-wifi-txt">Waiting</span></div>
+      <div class="health-detail" id="hc-wifi-det">—</div>
+    </div>
+    <div class="health-card hc-idle" id="hc-lora">
+      <div class="health-icon">📡</div>
+      <div class="health-lbl">LoRa Radio</div>
+      <div class="health-badge"><span class="health-dot-sm"></span><span id="hc-lora-txt">Waiting</span></div>
+      <div class="health-detail" id="hc-lora-det">—</div>
+    </div>
+    <div class="health-card hc-idle" id="hc-tft">
+      <div class="health-icon">🖵</div>
+      <div class="health-lbl">TFT Display</div>
+      <div class="health-badge"><span class="health-dot-sm"></span><span id="hc-tft-txt">Waiting</span></div>
+      <div class="health-detail" id="hc-tft-det">—</div>
+    </div>
+  </div>
+
+  <p class="section-label">Live Telemetry</p>
+  <div class="tele-grid">
+    <div class="tele-card card-v" id="card-v-el">
+      <div class="tele-label">Voltage</div>
+      <div class="tele-value" id="tv">—</div>
+      <div class="tele-unit">Volts AC</div>
+      <div class="tele-bar"><div class="tele-bar-fill" id="bv" style="--accent:#F59E0B"></div></div>
+    </div>
+    <div class="tele-card card-i" id="card-i-el">
+      <div class="tele-label">Current</div>
+      <div class="tele-value" id="ti">—</div>
+      <div class="tele-unit">Amps RMS</div>
+      <div class="tele-bar"><div class="tele-bar-fill" id="bi" style="--accent:#8B5CF6"></div></div>
+    </div>
+    <div class="tele-card card-p" id="card-p-el">
+      <div class="tele-label">Power</div>
+      <div class="tele-value" id="tp">—</div>
+      <div class="tele-unit">Watts</div>
+      <div class="tele-bar"><div class="tele-bar-fill" id="bp" style="--accent:#2563EB"></div></div>
+    </div>
+    <div class="tele-card card-e">
+      <div class="tele-label">Energy</div>
+      <div class="tele-value" id="te">—</div>
+      <div class="tele-unit">kWh accumulated</div>
+      <div class="tele-bar"><div class="tele-bar-fill" id="be" style="--accent:#F97316"></div></div>
+    </div>
+    <div class="tele-card card-hz">
+      <div class="tele-label">Frequency</div>
+      <div class="tele-value" id="tf">—</div>
+      <div class="tele-unit">Hertz</div>
+      <div class="tele-bar"><div class="tele-bar-fill" id="bf" style="--accent:#0891B2;width:0%"></div></div>
+    </div>
+    <div class="tele-card card-pf" id="card-pf-el">
+      <div class="tele-label">Power Factor</div>
+      <div class="tele-value" id="tpf">—</div>
+      <div class="tele-unit">cos φ</div>
+      <div class="tele-bar"><div class="tele-bar-fill" id="bpf" style="--accent:#059669"></div></div>
+    </div>
+  </div>
+
+  <div class="main-cols">
+
+    <div>
+      <p class="section-label">Power Signature — Live Graph</p>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="card-title-icon">📈</span>
+            Real-Time Power (W) &amp; Power Factor
+          </div>
+          <div style="font-size:11px;color:var(--slate-400);font-family:var(--mono)" id="lastUpdated">—</div>
+        </div>
+        <div class="card-body">
+          <div class="chart-wrap">
+            <canvas id="liveChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="rssi-wrap" style="margin-top:10px;">
+        <div class="rssi-label">RSSI</div>
+        <div class="rssi-track"><div class="rssi-fill" id="rssiFill" style="width:0%"></div></div>
+        <div class="rssi-val" id="rssiVal">— dBm</div>
+      </div>
+    </div>
+
+    <div>
+      <p class="section-label">AI Appliance Intelligence</p>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="card-title-icon">🤖</span>
+            KNN Classifier
+          </div>
+          <div style="font-size:11px;color:var(--slate-400)">Auto-updating 💡</div>
+        </div>
+        <div class="card-body">
+
+          <div class="ai-status-ring idle" id="aiRing">🔌</div>
+          <div class="ai-device-name" id="aiDevice">Waiting for data…</div>
+          <div class="ai-health-msg"  id="aiHealth">—</div>
+          <div class="ai-dist"        id="aiDist"></div>
+
+          <div class="rec-panel" id="recPanel">
+            <div class="rec-header">
+              <div class="rec-label" id="recLabel">📡 Stabilising…</div>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div class="rec-count" id="recCount"></div>
+                <button class="btn-cancel-train" onclick="cancelTraining()" title="Cancel recording">✕ Cancel</button>
+              </div>
+            </div>
+            <div class="rec-bar-track">
+              <div class="rec-bar-fill" id="recBarFill" style="width:0%"></div>
+            </div>
+          </div>
+
+          <hr class="divider"/>
+
+          <div style="font-size:11.5px;font-weight:700;color:var(--slate-500);margin-bottom:12px;text-transform:uppercase;letter-spacing:.8px;">Manual Analysis</div>
+          <div class="form-row">
+            <div class="form-field">
+              <label>Power (W)</label>
+              <input type="number" id="manPower" step="0.1" placeholder="e.g. 65.0"/>
+            </div>
+            <div class="form-field">
+              <label>PF (cos φ)</label>
+              <input type="number" id="manPF" step="0.01" placeholder="e.g. 0.97" min="0" max="1"/>
+            </div>
+          </div>
+          <button class="btn-analyze" onclick="manualAnalyze()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            Analyze Signature
+          </button>
+
+          <button class="btn-train" id="btnTrainNew" onclick="startTraining()">
+            ⚡ Train New Appliance
+          </button>
+          <div style="font-size:10.5px;color:var(--slate-400);text-align:center;margin-top:6px;line-height:1.4;" id="trainHint">
+            Plug in any appliance and click this to capture its electrical signature and add it to the AI model.
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div><p class="section-label" style="margin-top:24px;">AI Training Dataset</p>
+  <div class="card" style="margin-bottom:0;">
+    <div class="card-header">
+      <div class="card-title">
+        <span class="card-title-icon">🧠</span>
+        Known Appliance Signatures
+      </div>
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:11px;color:var(--slate-400);">
+          Samples: <span style="font-family:var(--mono);color:var(--slate-600);" id="totalSamples">—</span>
+        </div>
+        <button onclick="pollTrainingData()" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--slate-200);background:var(--slate-50);cursor:pointer;color:var(--slate-500);">↺ Refresh</button>
+        <button id="btnForceRetrain" onclick="forceRetrain()" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #DDD6FE;background:var(--purple-bg);cursor:pointer;color:var(--purple);font-weight:700;" title="Hot-swap the AI model from current training data — no restart needed">🔄 Force Retrain</button>
+        <button onclick="openDataLogsModal()" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--slate-200);background:var(--slate-50);cursor:pointer;color:var(--slate-500);font-weight:600;" title="View all sensor readings logged from ESP32">📊 Data Logs</button>
+        <button onclick="openWiFiModal()" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid #E0E7FF;background:#F0F4FF;cursor:pointer;color:#4F46E5;font-weight:600;" title="Configure WiFi SSID and password for ESP32">📶 WiFi Config</button>
+        <button onclick="openMlConfigModal()" style="font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--slate-200);background:var(--slate-50);cursor:pointer;color:var(--slate-500);font-weight:600;" title="Configure strict power floors to stabilize AI predictions">⚙️ ML Rules</button>
+        <button class="btn-get-bill" onclick="openBillModal()">🧾 Get Bill</button>
+        <button class="btn-wemo-ai"  onclick="openAIModal()">🤖 WEMO Tech AI</button>
+        <button class="btn-reset"    onclick="showResetConfirm()">🗑 Reset All Data</button>
+      </div>
+    </div>
+
+    <div class="reset-confirm" id="resetConfirm">
+      <div class="reset-confirm-text">
+        ⚠️ <strong>This will delete ALL training data</strong> and retrain from factory defaults (Bulb and Mobile Charger only). All custom-trained loads will be erased. Are you sure?
+      </div>
+      <div class="reset-confirm-btns">
+        <button class="btn-reset-confirm" onclick="doReset()">Yes, Reset</button>
+        <button class="btn-reset-cancel"  onclick="hideResetConfirm()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="card-body" style="padding:0;">
+      <div class="train-table-wrap">
+      <table class="train-table" id="trainTable">
+        <thead>
+          <tr>
+            <th>Appliance</th>
+            <th>Samples</th>
+            <th>Avg Power (W)</th>
+            <th>Avg PF</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="trainTableBody">
+          <tr><td colspan="5" style="text-align:center;color:var(--slate-400);padding:16px;">Loading…</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </div>
+  </div>
+
+</div><div class="footer">
+  WEMO Node v4.1 &nbsp;·&nbsp; MLOps Energy Intelligence + WEMO Tech AI &nbsp;·&nbsp; Karachi, PK
+</div>
+
+<div id="mlConfigModal" class="modal-overlay">
+  <div class="modal-box" style="max-width: 600px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div class="modal-title">🧠 ML Threshold Rules</div>
+      <button onclick="closeMlConfigModal()" style="font-size:20px;background:none;border:none;cursor:pointer;color:var(--slate-400);">✕</button>
+    </div>
+    <div style="padding:0;">
+      <p style="color:var(--slate-500); font-size:13px; margin-bottom:16px; line-height:1.5;">
+        Override the KNN model by setting strict physical rules. If a load reads below its Power Floor, it will snap to the nearest valid class. This stops flickering between similar appliances.
+      </p>
+      
+      <h3 style="font-size:12px;text-transform:uppercase;color:var(--slate-400);margin-bottom:10px;letter-spacing:1px;">Power Floors (Minimum Watts)</h3>
+      <div id="powerFloorContainer" style="display:grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
+        </div>
+      
+      <button class="modal-btn-save" style="width:100%" onclick="saveMlConfig()">💾 Save ML Rules</button>
+    </div>
+  </div>
+</div>
+
+<div class="bill-overlay" id="billOverlay">
+  <div class="bill-box">
+    <div class="bill-title">🧾 KE Electricity Bill Estimator</div>
+    <div class="bill-sub">Karachi Electric (K-Electric) domestic tariff — NEPRA approved rates. Based on energy accumulated by your WEMO meter.</div>
+
+    <div class="bill-chips">
+      <div class="bill-chip">
+        <div class="bill-chip-lbl">Units (kWh)</div>
+        <div class="bill-chip-val" id="billUnits">—</div>
+      </div>
+      <div class="bill-chip">
+        <div class="bill-chip-lbl">Slab</div>
+        <div class="bill-chip-val" id="billSlab">—</div>
+      </div>
+      <div class="bill-chip">
+        <div class="bill-chip-lbl">Month Est.</div>
+        <div class="bill-chip-val" id="billMonthEst">—</div>
+      </div>
+    </div>
+
+    <table class="bill-breakdown">
+      <thead><tr><th>Charge</th><th>Rate</th><th>Amount (Rs)</th></tr></thead>
+      <tbody>
+        <tr><td>Base Energy Tariff</td><td id="bill-rate-lbl">—</td><td id="bill-base">—</td></tr>
+        <tr><td>Fuel Cost Adjustment (FCA)</td><td>Rs 5.18/unit</td><td id="bill-fca">—</td></tr>
+        <tr><td>GST (18%)</td><td>18%</td><td id="bill-gst">—</td></tr>
+        <tr><td>Electricity Duty (2%)</td><td>2%</td><td id="bill-duty">—</td></tr>
+        <tr><td>TV Fee (fixed)</td><td>Rs 35/month</td><td>35.00</td></tr>
+        <tr><td>Meter Rent (fixed)</td><td>Rs 15/month</td><td>15.00</td></tr>
+      </tbody>
+    </table>
+
+    <div class="bill-total-bar">
+      <span>Estimated Total</span>
+      <span id="billTotal">Rs —</span>
+    </div>
+
+    <div class="bill-note">
+      ⚠️ This estimate is based on kWh accumulated since last PZEM reset. Actual bill may vary based on meter reading cycle, peak/off-peak rates, and monthly FCA revision by NEPRA.
+    </div>
+
+    <details style="margin-bottom:10px;">
+      <summary style="font-size:11.5px;font-weight:700;color:var(--slate-500);cursor:pointer;margin-bottom:6px;">KE Domestic Slab Rates (NEPRA)</summary>
+      <table class="bill-slabs">
+        <thead><tr><th>Units</th><th>Tariff (Rs/kWh)</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr id="slab-0"><td>≤ 50 (Protected)</td><td>7.74</td><td>—</td></tr>
+          <tr id="slab-1"><td>1 – 100</td><td>24.73</td><td>—</td></tr>
+          <tr id="slab-2"><td>101 – 200</td><td>28.82</td><td>—</td></tr>
+          <tr id="slab-3"><td>201 – 300</td><td>32.73</td><td>—</td></tr>
+          <tr id="slab-4"><td>301 – 700</td><td>37.07</td><td>—</td></tr>
+          <tr id="slab-5"><td>&gt; 700</td><td>43.07</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </details>
+
+    <button class="btn-bill-close" onclick="closeBillModal()">✕ Close</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="nameModal">
+  <div class="modal-box">
+    <div class="modal-title" id="modalTitle">📡 Signature Captured — Name This Appliance</div>
+    <div class="modal-sub" id="modalSub">
+      Real readings have been recorded from the connected appliance.
+      Give it a name and the AI will retrain to recognise it automatically from now on.
+    </div>
+    <div class="modal-meta">
+      <div class="modal-chip">
+        <div class="modal-chip-label">Avg Power</div>
+        <div class="modal-chip-val" id="modalPower">— W</div>
+      </div>
+      <div class="modal-chip">
+        <div class="modal-chip-label">Avg PF</div>
+        <div class="modal-chip-val" id="modalPF">—</div>
+      </div>
+      <div class="modal-chip">
+        <div class="modal-chip-label">Samples</div>
+        <div class="modal-chip-val" id="modalSamples">30</div>
+      </div>
+    </div>
+    <input class="modal-input" id="loadNameInput" type="text"
+           placeholder="e.g. Fan, Laptop, Fan + Bulb…" maxlength="40"/>
+    <div class="modal-btns">
+      <button class="modal-btn-save"   onclick="saveLoadName()">💾 Save &amp; Retrain</button>
+      <button class="modal-btn-cancel" onclick="closeModal()">Later</button>
+    </div>
+  </div>
+</div>
+
+<div class="ai-modal-overlay" id="aiModalOverlay">
+  <div class="ai-modal-box">
+
+    <div class="ai-modal-header">
+      <div class="ai-modal-logo">🤖</div>
+      <div>
+        <div class="ai-modal-title">WEMO Tech AI</div>
+        <div style="font-size:11px;color:var(--purple);font-weight:600;">Powered by Mistral AI</div>
+      </div>
+    </div>
+    <div class="ai-modal-sub">
+      Sends your live PZEM readings + KNN classification to Mistral AI. It will check if your system is working correctly, detect any faults, and calculate how much energy and PKR it will consume if run for a full day.
+    </div>
+
+    <div class="ai-snapshot" id="aiSnapGrid">
+      <div class="ai-snap-chip"><div class="ai-snap-lbl">Power</div><div class="ai-snap-val" id="snapP">—</div></div>
+      <div class="ai-snap-chip"><div class="ai-snap-lbl">PF</div><div class="ai-snap-val" id="snapPF">—</div></div>
+      <div class="ai-snap-chip"><div class="ai-snap-lbl">Voltage</div><div class="ai-snap-val" id="snapV">—</div></div>
+      <div class="ai-snap-chip"><div class="ai-snap-lbl">Current</div><div class="ai-snap-val" id="snapI">—</div></div>
+      <div class="ai-snap-chip"><div class="ai-snap-lbl">Freq</div><div class="ai-snap-val" id="snapF">—</div></div>
+      <div class="ai-snap-chip"><div class="ai-snap-lbl">KNN Class</div><div class="ai-snap-val" id="snapClass" style="font-size:11px;">—</div></div>
+    </div>
+
+    <div class="ai-cost-strip" id="aiCostStrip" style="display:none;">
+      <div class="ai-cost-chip">
+        <div class="ai-cost-lbl">24h Energy</div>
+        <div class="ai-cost-val" id="aiKwh">—</div>
+        <div class="ai-cost-sub">kilowatt-hours</div>
+      </div>
+      <div class="ai-cost-chip">
+        <div class="ai-cost-lbl">24h Cost (PKR)</div>
+        <div class="ai-cost-val" id="aiPkr">—</div>
+        <div class="ai-cost-sub">at KE tariff</div>
+      </div>
+    </div>
+
+    <div class="ai-result-box loading" id="aiResultBox">
+      Press the button below to send your live data to WEMO Tech AI.
+    </div>
+
+    <button class="btn-run-ai" id="btnRunAI" onclick="runWemoAI()">
+      <span class="ai-status-dot" id="aiDot" style="display:none;"></span>
+      <span id="aiBtnText">⚡ Analyse with WEMO Tech AI</span>
+    </button>
+    <button class="btn-bill-close" onclick="closeAIModal()">✕ Close</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="dataLogsModal">
+  <div class="modal-box" style="width:90vw;max-width:900px;max-height:85vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <div>
+        <div class="modal-title">📊 Sensor Data Logs</div>
+        <div class="modal-sub">All readings recorded from ESP32 since logging started.</div>
+      </div>
+      <button onclick="closeDataLogsModal()" style="font-size:20px;background:none;border:none;cursor:pointer;color:var(--slate-400);">✕</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+      <button onclick="exportDataLogs()" style="padding:8px 14px;background:var(--green);color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:600;font-size:12px;">📥 Export CSV</button>
+      <button onclick="refreshDataLogs()" style="padding:8px 14px;background:var(--blue);color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:600;font-size:12px;">↺ Refresh</button>
+      <button onclick="clearAllDataLogs()" style="padding:8px 14px;background:var(--red);color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:600;font-size:12px;">🗑 Clear All</button>
+      <div style="flex:1;text-align:right;font-size:11px;color:var(--slate-400);padding-top:8px;">
+        Total: <span id="logsTotal" style="font-weight:700;">—</span> | Showing: <span id="logsCount" style="font-weight:700;">—</span>
+      </div>
+    </div>
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--slate-200);border-radius:8px;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:600px;">
+        <thead>
+          <tr style="background:var(--slate-50);border-bottom:1px solid var(--slate-200);">
+            <th style="padding:8px 10px;text-align:left;font-weight:700;color:var(--slate-500);">Timestamp</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:700;color:var(--slate-500);">V (V)</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:700;color:var(--slate-500);">I (A)</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:700;color:var(--slate-500);">P (W)</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:700;color:var(--slate-500);">PF</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:700;color:var(--slate-500);">E (kWh)</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:700;color:var(--slate-500);">Device</th>
+            <th style="padding:8px 10px;text-align:center;font-weight:700;color:var(--slate-500);"></th>
+          </tr>
+        </thead>
+        <tbody id="logsTableBody">
+          <tr><td colspan="8" style="text-align:center;padding:16px;color:var(--slate-400);">Loading logs…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="wifiConfigModal">
+  <div class="modal-box">
+    <div class="modal-title" style="margin-bottom:4px;">📶 WiFi Configuration</div>
+    <div class="modal-sub" style="margin-bottom:16px;">
+      Set the WiFi SSID and Password for your ESP32 device. Configuration will be stored and can be sent to the ESP32 for automatic connection.
+    </div>
+    <div style="background:var(--blue-light);border:1px solid #90BFDE;border-radius:8px;padding:12px;margin-bottom:14px;font-size:11.5px;color:var(--blue);line-height:1.6;">
+      💡 <strong>Tip:</strong> Use a 2.4GHz WiFi network (ESP32 doesn't support 5GHz). Password must be at least 8 characters.
+    </div>
+    <div class="form-row" style="grid-template-columns:1fr;">
+      <div class="form-field">
+        <label>WiFi SSID (Network Name)</label>
+        <input type="text" id="wifiSSID" placeholder="e.g. MyHomeWiFi" maxlength="32" style="font-size:14px;padding:10px 12px;"/>
+      </div>
+    </div>
+    <div class="form-row" style="grid-template-columns:1fr;">
+      <div class="form-field">
+        <label>WiFi Password</label>
+        <input type="password" id="wifiPassword" placeholder="Enter WiFi password (min 8 chars)" minlength="8" style="font-size:14px;padding:10px 12px;"/>
+      </div>
+    </div>
+    <div style="display:flex;gap:4px;margin-bottom:12px;align-items:center;">
+      <input type="checkbox" id="showWifiPwd" onchange="document.getElementById('wifiPassword').type = this.checked ? 'text' : 'password';"/>
+      <label style="font-size:11px;color:var(--slate-500);">Show password</label>
+    </div>
+    <div id="wifiStatus" style="display:none;padding:10px 12px;border-radius:7px;margin-bottom:12px;font-size:12px;font-weight:600;"></div>
+    <div class="modal-btns">
+      <button class="modal-btn-save" onclick="saveWiFiConfig()" id="btnSaveWiFi" style="flex:1;">💾 Save Configuration</button>
+      <button class="modal-btn-cancel" onclick="closeWiFiModal()">Cancel</button>
+    </div>
+    <div style="border-top:1px solid var(--slate-100);margin-top:14px;padding-top:12px;font-size:10.5px;color:var(--slate-400);line-height:1.6;">
+      <strong>Next Steps:</strong><br/>
+      1. Save the WiFi configuration here<br/>
+      2. Upload this config to your ESP32 via its web interface or serial console<br/>
+      3. ESP32 will automatically connect to the configured network
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ─── Chart setup ─────────────────────────────────── */
+const ctx = document.getElementById('liveChart').getContext('2d');
+const chart = new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [
+      {
+        label: 'Power (W)',
+        data: [],
+        borderColor: '#2563EB',
+        backgroundColor: 'rgba(37,99,235,.06)',
+        borderWidth: 2,
+        pointRadius: 0,
+        tension: 0.35,
+        fill: true,
+        yAxisID: 'yP',
+      },
+      {
+        label: 'Power Factor',
+        data: [],
+        borderColor: '#059669',
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.35,
+        borderDash: [4,3],
+        yAxisID: 'yPF',
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 300 },
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: {
+        labels: {
+          font: { family: 'IBM Plex Sans', size: 11 },
+          color: '#64748B', boxWidth: 20,
+          usePointStyle: true, pointStyle: 'line',
+        }
+      },
+      tooltip: {
+        backgroundColor: '#fff', titleColor: '#0F172A', bodyColor: '#64748B',
+        borderColor: '#E2E8F0', borderWidth: 1,
+        bodyFont:  { family: 'IBM Plex Mono', size: 12 },
+        titleFont: { family: 'IBM Plex Sans', size: 12, weight: '600' },
+        padding: 12,
+      }
+    },
+    scales: {
+      x: {
+        ticks: { font:{family:'IBM Plex Mono',size:10}, color:'#94A3B8', maxTicksLimit:8 },
+        grid:  { color:'#F1F5F9' }, border:{ display:false }
+      },
+      yP: {
+        position: 'left',
+        title: { display:true, text:'Watts', font:{family:'IBM Plex Sans',size:10}, color:'#94A3B8' },
+        ticks: { font:{family:'IBM Plex Mono',size:10}, color:'#94A3B8' },
+        grid:  { color:'#F1F5F9' }, border:{ display:false }
+      },
+      yPF: {
+        position: 'right', min: 0, max: 1,
+        title: { display:true, text:'PF', font:{family:'IBM Plex Sans',size:10}, color:'#94A3B8' },
+        ticks: { font:{family:'IBM Plex Mono',size:10}, color:'#94A3B8', stepSize:0.2 },
+        grid:  { drawOnChartArea:false }, border:{ display:false }
+      }
+    }
+  }
+});
+
+/* ─── Helpers ─────────────────────────────────────── */
+function fmt(v, d=1) {
+  return (v === null || v === undefined || isNaN(v)) ? '—' : Number(v).toFixed(d);
+}
+
+function setChip(id, ok) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('ok','err','warn');
+  el.classList.add(ok ? 'ok' : 'err');
+}
+
+/* ════════════════════════════════════════════════════
+   PRIORITY ALERT SYSTEM  (v4.1 fix)
+   ─────────────────────────────────────────────────
+   Priority:  fault > AI danger > AI warning > hide
+   Debounced: DOM is only touched when the alert
+              content actually changes.  No more
+              flicker on every 1.5 s poll.
+═══════════════════════════════════════════════════════ */
+let _alertKey = '';   // tracks last rendered "status|msg"
+
+function _renderAlert(status, msg) {
+  const key = status + '|' + msg;
+  if (key === _alertKey) return;   // nothing changed — skip DOM write
+  _alertKey = key;
+
+  const bar = document.getElementById('alertBar');
+  const ico = { danger:'🚨', warning:'⚠️', normal:'✅', idle:'ℹ️' };
+
+  if (!msg) {
+    bar.classList.remove('show');
+    return;
+  }
+  document.getElementById('alertIcon').textContent = ico[status] || 'ℹ️';
+  document.getElementById('alertMsg').textContent  = msg;
+  bar.className = 'alert-bar show ' + status;
+}
+
+// Call these from the rest of the code:
+function showAlert(status, msg) { _renderAlert(status, msg); }
+function hideAlert()            { _renderAlert('', ''); }
+
+// Combined priority resolver — called once per poll cycle
+let _faultMsg  = '';   // latest fault string from sensor
+let _aiStatus  = '';   // latest AI classification status
+let _aiMsg     = '';   // latest AI health message
+
+function resolveAlert() {
+  if (_faultMsg) {
+    _renderAlert('danger', '⚡ Electrical Fault: ' + _faultMsg);
+  } else if (_aiStatus === 'danger') {
+    _renderAlert('danger', _aiMsg);
+  } else if (_aiStatus === 'warning') {
+    _renderAlert('warning', _aiMsg);
+  } else {
+    _renderAlert('', '');
+  }
+}
+
+/* ─── Fault highlights ────────────────────────────── */
+function applyFaultHighlight(cardId, faulted) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  card.classList.remove('fault-warn','fault-danger');
+  if (faulted) card.classList.add('fault-danger');
+}
+
+function updateFaultHighlights(d) {
+  applyFaultHighlight('card-v-el',  d.fault_voltage);
+  applyFaultHighlight('card-i-el',  d.fault_current);
+  applyFaultHighlight('card-pf-el', d.fault_pf);
+  applyFaultHighlight('card-p-el',  d.fault_power);
+  _faultMsg = d.fault_msg || '';   // store, don't show yet — resolveAlert() handles it
+}
+
+/* ─── AI Panel ────────────────────────────────────── */
+// Known icon map — fixed appliances (exact match first)
+const DEVICE_ICONS = {
+  'Laptop Charger':         '💻',
+  'Laptop':                 '💻',
+  'Phone Charger':          '📱',
+  'Mobile Charger':         '📱',
+  'Mobile':                 '📱',
+  'LED Bulb':               '💡',
+  'Bulb':                   '💡',
+  'Fan':                    '🌀',
+  'Bulb + Fan':             '🌀',   // Fan wins when both present
+  'Bulb + Mobile Charger':  '📱',
+  'Iron':                   '🔥',
+  'Kettle':                 '☕',
+  'Heater':                 '🔥',
+  'AC':                     '❄️',
+  'Air Conditioner':        '❄️',
+  'TV':                     '📺',
+  'Fridge':                 '🧊',
+  'Refrigerator':           '🧊',
+  'Washing Machine':        '🫧',
+  'No Load Connected':      '🔌',
+  'Unknown Load Connected': '❓',
+  'Waiting for data…':      '🔌',
+  'Model not trained yet':  '⚙️',
+  'Retraining…':            '🔄',
+};
+
+// Keyword-based icon inference for any custom appliance the user adds
+// This makes the system DYNAMIC — no code change needed for new appliances.
+const ICON_KEYWORDS = [
+  { kw: /fan/i,              icon: '🌀' },
+  { kw: /bulb|light|led|lamp/i, icon: '💡' },
+  { kw: /mobile|phone|charger/i, icon: '📱' },
+  { kw: /laptop|computer|pc/i, icon: '💻' },
+  { kw: /iron/i,             icon: '🔥' },
+  { kw: /heater|heat/i,      icon: '🔥' },
+  { kw: /kettle|coffee/i,    icon: '☕' },
+  { kw: /ac|air.?con/i,      icon: '❄️' },
+  { kw: /fridge|refrig/i,    icon: '🧊' },
+  { kw: /tv|television/i,    icon: '📺' },
+  { kw: /wash/i,             icon: '🫧' },
+  { kw: /pump/i,             icon: '💧' },
+  { kw: /motor/i,            icon: '⚙️' },
+];
+
+function getDeviceIcon(label) {
+  if (!label) return '🔌';
+  // 1. Exact match
+  if (DEVICE_ICONS[label]) return DEVICE_ICONS[label];
+  // 2. Keyword inference (handles multi-appliance names like "Fan + Bulb")
+  for (const { kw, icon } of ICON_KEYWORDS) {
+    if (kw.test(label)) return icon;
+  }
+  // 3. Fallback
+  return '⚡';
+}
+
+function updateAIPanel(prediction, device_status, health_msg, anomaly_distance) {
+  const ring   = document.getElementById('aiRing');
+  const device = document.getElementById('aiDevice');
+  const health = document.getElementById('aiHealth');
+  const dist   = document.getElementById('aiDist');
+
+  ring.className   = 'ai-status-ring ' + (device_status || 'idle');
+  ring.textContent = getDeviceIcon(prediction);
+  device.textContent = prediction  || '—';
+  health.textContent = health_msg  || '—';
+  dist.textContent   = anomaly_distance != null
+    ? `Nearest-neighbour dist: ${anomaly_distance}` : '';
+
+  // Store AI status — resolveAlert() decides what to show
+  _aiStatus = device_status || '';
+  _aiMsg    = health_msg    || '';
+  resolveAlert();
+}
+
+/* ─── Recording progress panel ────────────────────── */
+function updateRecordingPanel(phase, count, target) {
+  const panel   = document.getElementById('recPanel');
+  const label   = document.getElementById('recLabel');
+  const recCnt  = document.getElementById('recCount');
+  const barFill = document.getElementById('recBarFill');
+
+  if (!phase || phase === 'idle') {
+    panel.classList.remove('show','phase-ready');
+    return;
+  }
+
+  panel.classList.add('show');
+
+  if (phase === 'stabilizing') {
+    panel.classList.remove('phase-ready');
+    label.textContent   = '⏳ Stabilising… (3 s)';
+    recCnt.textContent  = '';
+    barFill.style.width = '15%';
+
+  } else if (phase === 'recording') {
+    panel.classList.remove('phase-ready');
+    const pct = Math.round((count / target) * 100);
+    label.textContent   = '📡 Recording signature…';
+    recCnt.textContent  = `${count} / ${target}`;
+    barFill.style.width = pct + '%';
+
+  } else if (phase === 'ready') {
+    panel.classList.add('phase-ready');
+    label.textContent   = '✅ Signature captured — name this load';
+    recCnt.textContent  = `${target} readings`;
+    barFill.style.width = '100%';
+  }
+}
+
+/* ════════════════════════════════════════════════════
+   FAST KNN SMOOTHER  (v4.1 — client-only, N=3)
+   ─────────────────────────────────────────────────
+   The server now outputs raw KNN results (N=1 passthrough).
+   This 3-frame smoother is the ONLY smoother in the pipeline.
+   • Needs 2 of 3 readings to commit a new label (2/3 = 0.67)
+   • First reading always commits immediately (len < 2)
+   • Worst-case lag after appliance change: 2 extra frames = 3 s
+   • retrain_count: when the server hot-swaps a new model, the
+     count changes and we flush the buffer for instant reaction.
+═══════════════════════════════════════════════════════ */
+const SMOOTH_N   = 1;
+const SMOOTH_THR = 0.00;
+let _predBuf      = [];
+let _stableLabel  = null;
+let _stableStatus = null;
+let _stableHealth = null;
+let _stableDist   = null;
+let _lastRetrain  = -1;   // tracks server's retrain_count
+
+function flushSmoother() {
+  _predBuf = [];
+  _stableLabel = _stableStatus = _stableHealth = _stableDist = null;
+}
+
+function smoothedPrediction(rawPred, rawStatus, rawHealth, rawDist) {
+  _predBuf.push(rawPred);
+  if (_predBuf.length > SMOOTH_N) _predBuf.shift();
+
+  const votes = {};
+  for (const p of _predBuf) votes[p] = (votes[p] || 0) + 1;
+  const [winner, topVotes] = Object.entries(votes).sort((a, b) => b[1] - a[1])[0];
+  const fraction = topVotes / _predBuf.length;
+
+  if (fraction >= SMOOTH_THR || _predBuf.length < 2) {
+    _stableLabel  = winner;
+    if (winner === rawPred) {
+      _stableStatus = rawStatus;
+      _stableHealth = rawHealth;
+      _stableDist   = rawDist;
+    }
+  }
+
+  return {
+    prediction:       _stableLabel  || rawPred,
+    device_status:    _stableStatus || rawStatus,
+    health_msg:       _stableHealth || rawHealth,
+    anomaly_distance: _stableDist,
+  };
+}
+
+/* ─── Live poll ───────────────────────────────────── */
+function pollLive() {
+  fetch('/live')
+    .then(r => r.json())
+    .then(d => {
+
+      // ── Detect model hot-swap → flush client buffer instantly ──
+      const rc = d.retrain_count ?? 0;
+      if (_lastRetrain === -1) {
+        _lastRetrain = rc;           // initialise on first poll
+      } else if (rc !== _lastRetrain) {
+        _lastRetrain = rc;
+        flushSmoother();             // new model loaded — react immediately
+      }
+
+      // Telemetry cards
+      document.getElementById('tv').textContent  = fmt(d.v, 0);
+      document.getElementById('ti').textContent  = fmt(d.i, 2);
+      document.getElementById('tp').textContent  = fmt(d.p, 1);
+      document.getElementById('te').textContent  = d.e < 1
+        ? fmt(d.e * 1000, 2) + ' Wh'
+        : fmt(d.e, 3) + ' kWh';
+      document.getElementById('tf').textContent  = fmt(d.f, 1);
+      document.getElementById('tpf').textContent = fmt(d.pf, 2);
+
+      // Progress bars
+      const MAX = { v:260, i:16, p:2300, e:10, f:60, pf:1 };
+      const pct = (val, max) => Math.min(100, (val/max)*100).toFixed(1)+'%';
+      document.getElementById('bv').style.width  = pct(d.v,  MAX.v);
+      document.getElementById('bi').style.width  = pct(d.i,  MAX.i);
+      document.getElementById('bp').style.width  = pct(d.p,  MAX.p);
+      document.getElementById('be').style.width  = pct(d.e,  MAX.e);
+      document.getElementById('bf').style.width  = '50%';
+      document.getElementById('bpf').style.width = pct(d.pf, MAX.pf);
+
+      // Fault highlights (stores _faultMsg, does NOT call showAlert)
+      updateFaultHighlights(d);
+
+      // Relay badge
+      const relayOn = d.relay === 1;
+      const badge = document.getElementById('relayStateBadge');
+      badge.textContent = relayOn ? '● Relay ON' : '● Relay OFF';
+      badge.className   = 'relay-state-badge ' + (relayOn ? 'on' : 'off');
+
+      // ── KNN update (fast 3-reading client smoother only) ──────
+      const phase = d.recording_phase || 'idle';
+      if (phase === 'idle') {
+        // Server is now a passthrough (N=1) — feed its output straight
+        // into the client smoother for glitch-free fast updates.
+        const s = smoothedPrediction(
+          d.prediction, d.device_status, d.health_msg, d.anomaly_distance
+        );
+        updateAIPanel(s.prediction, s.device_status, s.health_msg, s.anomaly_distance);
+      } else {
+        // Training in progress — show raw state, reset client buffer
+        flushSmoother();
+        updateAIPanel(d.prediction, d.device_status, d.health_msg, d.anomaly_distance);
+      }
+
+      // Recording progress
+      const count  = d.recording_count  || 0;
+      const target = d.recording_target || 30;
+      updateRecordingPanel(phase, count, target);
+
+      // Train button sync
+      const btn  = document.getElementById('btnTrainNew');
+      const hint = document.getElementById('trainHint');
+      if (phase === 'recording') {
+        btn.textContent  = `🔴 Recording… ${count}/${target}`;
+        btn.disabled     = true;
+        hint.textContent = `Capturing signature — ${count} of ${target} readings collected. Keep the appliance on.`;
+      } else if (phase === 'stabilizing') {
+        btn.textContent  = '⏳ Stabilising…';
+        btn.disabled     = true;
+        hint.textContent = 'Settling readings before recording starts (3 s)…';
+      } else if (phase === 'idle' && _trainingActive) {
+        resetTrainButton();
+        hideAlert();
+        showAlert('warning', '🔌 Appliance was unplugged — training cancelled. Plug it back in and try again.');
+        setTimeout(hideAlert, 6000);
+      }
+
+      // Name modal
+      if (d.unknown_alert || phase === 'ready') {
+        openNameModal(
+          d.unknown_power || d.p,
+          d.unknown_pf    || d.pf,
+          count || target
+        );
+      } else if (_modalOpen && phase === 'idle') {
+        closeModal();
+        resetTrainButton();
+      }
+
+      // System Health Cards
+      const hasData  = !!d.timestamp;
+      const wifiOK   = hasData && d.rssi && d.rssi !== 0;
+      const pzemOK   = hasData && d.v > 0;
+
+      setHealthCard('hc-esp32', hasData ? 'ok' : 'idle',
+        hasData ? 'Healthy' : 'Waiting',
+        hasData ? `Uptime: ${d.uptime || '—'}` : 'No data yet');
+
+      setHealthCard('hc-pzem', pzemOK ? 'ok' : (hasData ? 'err' : 'idle'),
+        pzemOK ? 'Healthy' : (hasData ? 'FAULT' : 'Waiting'),
+        pzemOK ? `${fmt(d.v,0)} V · ${fmt(d.i,2)} A` : (hasData ? 'No voltage reading' : '—'));
+
+      setHealthCard('hc-relay', hasData ? 'ok' : 'idle',
+        hasData ? (relayOn ? 'Active (ON)' : 'Standby (OFF)') : 'Waiting',
+        hasData ? (relayOn ? 'Power flowing' : 'Power cut off') : '—');
+
+      const rssiVal  = d.rssi || 0;
+      const rssiQual = rssiVal > -65 ? 'Strong' : rssiVal > -80 ? 'Fair' : 'Weak';
+      setHealthCard('hc-wifi', wifiOK ? 'ok' : (hasData ? 'err' : 'idle'),
+        wifiOK ? 'Connected' : (hasData ? 'Offline' : 'Waiting'),
+        wifiOK ? `${rssiQual} · ${rssiVal} dBm` : (hasData ? 'No WiFi signal' : '—'));
+
+      setHealthCard('hc-lora', hasData ? 'warn' : 'idle',
+        hasData ? 'Unconfirmed' : 'Waiting',
+        hasData ? '433 MHz — no echo' : '—');
+
+      setHealthCard('hc-tft', hasData ? 'ok' : 'idle',
+        hasData ? 'Healthy' : 'Waiting',
+        hasData ? 'Display rendering' : '—');
+
+      // RSSI bar
+      const rssiPct = rssiVal ? Math.min(100, Math.max(0, (rssiVal + 100) * 3.33)) : 0;
+      document.getElementById('rssiFill').style.width = rssiPct + '%';
+      document.getElementById('rssiVal').textContent  = rssiVal ? rssiVal + ' dBm' : '— dBm';
+
+      // Uptime
+      document.getElementById('navUptime').textContent = d.uptime || '—';
+
+      // Last updated
+      if (d.timestamp)
+        document.getElementById('lastUpdated').textContent = 'Updated ' + d.timestamp;
+    })
+    .catch(() => {});
+}
+
+/* ─── History chart ───────────────────────────────── */
+function pollHistory() {
+  fetch('/history')
+    .then(r => r.json())
+    .then(hist => {
+      if (!hist.length) return;
+      chart.data.labels           = hist.map(h => h.t);
+      chart.data.datasets[0].data = hist.map(h => h.p);
+      chart.data.datasets[1].data = hist.map(h => h.pf);
+      chart.update('none');
+    })
+    .catch(() => {});
+}
+
+/* ─── Training data table ─────────────────────────── */
+function pollTrainingData() {
+  fetch('/api/training-data')
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('totalSamples').textContent = d.total ?? '—';
+      const tbody = document.getElementById('trainTableBody');
+      if (!d.classes || d.classes.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--slate-400);padding:16px;">No training data yet.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = d.classes.map(c => `
+        <tr>
+          <td>${c.label}</td>
+          <td>${c.count}</td>
+          <td>${c.avg_W}</td>
+          <td>${c.avg_pf}</td>
+          <td><button onclick="deleteClass('${c.label.replace(/'/g, "\\'")}')" style="font-size:11px;padding:3px 9px;border-radius:5px;border:1px solid var(--red);background:var(--red-bg);color:var(--red);cursor:pointer;font-weight:600;">✕ Delete</button></td>
+        </tr>`).join('');
+    })
+    .catch(() => {});
+}
+
+/* ─── Manual Analyze ──────────────────────────────── */
+function manualAnalyze() {
+  const power = document.getElementById('manPower').value;
+  const pf    = document.getElementById('manPF').value;
+  if (!power || !pf) { alert('Enter both Power (W) and Power Factor.'); return; }
+
+  const btn = document.querySelector('.btn-analyze');
+  btn.textContent = 'Analyzing…';
+  btn.disabled    = true;
+
+  fetch('/predict', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ power: parseFloat(power), pf: parseFloat(pf) }),
+  })
+  .then(r => r.json())
+  .then(d => {
+    updateAIPanel(d.prediction, d.device_status, d.health_msg, d.anomaly_distance);
+    btn.innerHTML = '✓ Done';
+    setTimeout(() => {
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg> Analyze Signature';
+      btn.disabled = false;
+    }, 1800);
+  })
+  .catch(() => { btn.textContent = 'Error'; btn.disabled = false; });
+}
+
+/* ─── Health card helper ──────────────────────────── */
+function setHealthCard(id, status, text, detail) {
+  const card = document.getElementById(id);
+  if (!card) return;
+  card.className = 'health-card hc-' + status;
+  card.querySelector('span[id$="-txt"]').textContent = text;
+  const det = card.querySelector('div[id$="-det"]');
+  if (det) det.textContent = detail || '';
+}
+
+/* ─── Relay Control ───────────────────────────────── */
+let _relayBusy = false;
+function setRelay(state) {
+  if (_relayBusy) return;
+  _relayBusy = true;
+  const onBtn  = document.getElementById('btnRelayOn');
+  const offBtn = document.getElementById('btnRelayOff');
+  onBtn.disabled  = true;
+  offBtn.disabled = true;
+
+  fetch('/api/relay', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ state }),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (!d.ok) showAlert('danger', '⚠ Relay command failed: ' + (d.error || 'unknown'));
+    else {
+      const isOn = state === 'ON';
+      const badge = document.getElementById('relayStateBadge');
+      badge.textContent = isOn ? '● Relay ON' : '● Relay OFF';
+      badge.className   = 'relay-state-badge ' + (isOn ? 'on' : 'off');
+    }
+  })
+  .catch(() => showAlert('danger', '🔌 Network error — relay command not sent.'))
+  .finally(() => {
+    _relayBusy      = false;
+    onBtn.disabled  = false;
+    offBtn.disabled = false;
+    setTimeout(hideAlert, 5000);
+  });
+}
+
+/* ─── Manual Training ─────────────────────────────── */
+let _trainingActive = false;
+
+function startTraining() {
+  const btn  = document.getElementById('btnTrainNew');
+  const hint = document.getElementById('trainHint');
+  btn.textContent = '⏳ Starting…';
+  btn.disabled = true;
+  flushSmoother();
+
+  fetch('/api/start-training', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        _trainingActive = true;
+        btn.textContent = '🔴 Recording…';
+        hint.textContent = 'Keep the appliance connected and steady. Recording its electrical signature…';
+        showAlert('warning', '📡 Manual training started — keep the appliance on and steady.');
+      } else {
+        btn.textContent = '⚡ Train New Appliance';
+        btn.disabled = false;
+        showAlert('danger', '🔌 ' + (d.error || 'Could not start training.'));
+        setTimeout(hideAlert, 6000);
+      }
+    })
+    .catch(() => {
+      btn.textContent = '⚡ Train New Appliance';
+      btn.disabled = false;
+      showAlert('danger', 'Network error — could not start training.');
+      setTimeout(hideAlert, 4000);
+    });
+}
+
+function cancelTraining() {
+  fetch('/api/cancel-training', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => {
+      _trainingActive = false;
+      resetTrainButton();
+      hideAlert();
+      closeModal();
+    })
+    .catch(() => {});
+}
+
+function resetTrainButton() {
+  const btn  = document.getElementById('btnTrainNew');
+  const hint = document.getElementById('trainHint');
+  btn.textContent = '⚡ Train New Appliance';
+  btn.disabled    = false;
+  hint.textContent = 'Plug in any appliance and click this to capture its electrical signature and add it to the AI model.';
+  _trainingActive  = false;
+}
+
+/* ─── Unknown-load modal ──────────────────────────── */
+let _modalOpen    = false;
+let _pendingPower = 0;
+let _pendingPF    = 0;
+let _pendingSamples = 0;
+
+function openNameModal(power, pf, samples) {
+  if (_modalOpen) return;
+  _modalOpen      = true;
+  _pendingPower   = power;
+  _pendingPF      = pf;
+  _pendingSamples = samples || 30;
+  document.getElementById('modalPower').textContent   = Number(power).toFixed(1) + ' W';
+  document.getElementById('modalPF').textContent      = Number(pf).toFixed(2);
+  document.getElementById('modalSamples').textContent = _pendingSamples;
+  document.getElementById('modalSub').textContent     =
+    `${_pendingSamples} real readings have been recorded from the connected appliance. ` +
+    `Give it a name and the AI will retrain to recognise it automatically from now on.`;
+  document.getElementById('loadNameInput').value      = '';
+  document.getElementById('nameModal').classList.add('show');
+  setTimeout(() => document.getElementById('loadNameInput').focus(), 120);
+}
+
+function closeModal() {
+  _modalOpen = false;
+  document.getElementById('nameModal').classList.remove('show');
+}
+
+function saveLoadName() {
+  const name = document.getElementById('loadNameInput').value.trim();
+  if (!name) { document.getElementById('loadNameInput').focus(); return; }
+
+  const btn = document.querySelector('.modal-btn-save');
+  btn.textContent = 'Saving…';
+  btn.disabled    = true;
+
+  fetch('/api/name-load', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ name, power: _pendingPower, pf: _pendingPF }),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      btn.textContent = '✓ Saved — Model Retraining…';
+      setTimeout(() => {
+        closeModal();
+        resetTrainButton();
+        btn.textContent = '💾 Save & Retrain';
+        btn.disabled    = false;
+        pollTrainingData();
+        // Smoother flushed automatically when server increments retrain_count
+        showAlert('normal', `✅ "${name}" saved with ${d.rows_added} samples. AI model is retraining…`);
+        setTimeout(hideAlert, 5000);
+      }, 2500);
+    } else {
+      btn.textContent = 'Error: ' + (d.error || 'unknown');
+      btn.disabled    = false;
+    }
+  })
+  .catch(() => { btn.textContent = 'Network error'; btn.disabled = false; });
+}
+
+document.getElementById('nameModal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+document.getElementById('loadNameInput').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') saveLoadName();
+});
+
+/* ─── Reset training data ─────────────────────────── */
+function showResetConfirm() {
+  document.getElementById('resetConfirm').classList.add('show');
+}
+function hideResetConfirm() {
+  document.getElementById('resetConfirm').classList.remove('show');
+}
+function doReset() {
+  const btn = document.querySelector('.btn-reset-confirm');
+  btn.textContent = 'Resetting…';
+  btn.disabled    = true;
+
+  fetch('/api/reset-training', { method: 'POST' })
+  .then(r => r.json())
+  .then(d => {
+    hideResetConfirm();
+    btn.textContent = 'Yes, Reset';
+    btn.disabled    = false;
+    if (d.ok) {
+      showAlert('warning', '🔄 Training data reset. Model retraining from factory defaults…');
+      setTimeout(() => { pollTrainingData(); hideAlert(); }, 6000);
+    } else {
+      showAlert('danger', 'Reset failed: ' + (d.error || 'unknown'));
+    }
+  })
+  .catch(() => {
+    btn.textContent = 'Yes, Reset';
+    btn.disabled    = false;
+    showAlert('danger', 'Network error during reset.');
+  });
+}
+
+/* ─── Delete single class ─────────────────────────── */
+function deleteClass(name) {
+  if (!confirm(`Delete ALL training data for "${name}"?\nThe appliance will be treated as unknown until you re-record it.`)) return;
+  fetch('/api/delete-class', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ name }),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      showAlert('warning', `🗑 Deleted "${name}" — reconnect the appliance to re-record it.`);
+      pollTrainingData();
+      setTimeout(hideAlert, 6000);
+    } else {
+      showAlert('danger', 'Delete failed: ' + (d.error || 'unknown'));
+    }
+  })
+  .catch(() => showAlert('danger', 'Network error during delete.'));
+}
+
+/* ─── Force Retrain (hot-swap without server restart) ─ */
+function forceRetrain() {
+  const btn = document.getElementById('btnForceRetrain');
+  const orig = btn.textContent;
+  btn.textContent = '⏳ Retraining…';
+  btn.disabled    = true;
+
+  fetch('/api/retrain', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        btn.textContent = '✓ Done!';
+        showAlert('normal', '🔄 AI model is retraining in the background — new classifications will appear in ~5 s.');
+        // The server's retrain_count will increment when done; client smoother auto-flushes
+        setTimeout(() => {
+          btn.textContent = orig;
+          btn.disabled    = false;
+          hideAlert();
+        }, 6000);
+      } else {
+        btn.textContent = 'Error';
+        btn.disabled    = false;
+        showAlert('danger', 'Retrain failed: ' + (d.error || 'unknown'));
+      }
+    })
+    .catch(() => {
+      btn.textContent = orig;
+      btn.disabled    = false;
+      showAlert('danger', 'Network error during retrain.');
+    });
+}
+
+
+const KE_SLABS = [
+  { max: 50,        rate: 7.74,  label: '≤ 50 (Protected)' },
+  { max: 100,       rate: 24.73, label: '1 – 100' },
+  { max: 200,       rate: 28.82, label: '101 – 200' },
+  { max: 300,       rate: 32.73, label: '201 – 300' },
+  { max: 700,       rate: 37.07, label: '301 – 700' },
+  { max: Infinity,  rate: 43.07, label: '> 700' },
+];
+const KE_FCA        = 5.18;
+const KE_GST        = 0.18;
+const KE_DUTY       = 0.02;
+const KE_TV_FEE     = 35;
+const KE_METER_RENT = 15;
+
+function calcKEBill(units) {
+  let slabIdx = KE_SLABS.findIndex(s => units <= s.max);
+  if (slabIdx < 0) slabIdx = KE_SLABS.length - 1;
+  const rate     = KE_SLABS[slabIdx].rate;
+  const base     = units * rate;
+  const fca      = units * KE_FCA;
+  const subtotal = base + fca;
+  const gst      = subtotal * KE_GST;
+  const duty     = subtotal * KE_DUTY;
+  const total    = subtotal + gst + duty + KE_TV_FEE + KE_METER_RENT;
+  return { base, fca, gst, duty, total, slabIdx, rate };
+}
+
+function openBillModal() {
+  const eText = document.getElementById('te').textContent || '0';
+  let kWh = 0;
+  if (eText.includes('Wh')) kWh = parseFloat(eText) / 1000;
+  else kWh = parseFloat(eText) || 0;
+
+  const pText    = document.getElementById('tp').textContent || '0';
+  const watt     = parseFloat(pText) || 0;
+  const monthKwh = (watt / 1000) * 24 * 30;
+
+  const units = Math.max(kWh, 0.001);
+  const bill  = calcKEBill(units);
+
+  document.getElementById('billUnits').textContent    = units.toFixed(4);
+  document.getElementById('billSlab').textContent     = KE_SLABS[bill.slabIdx].label;
+  document.getElementById('billMonthEst').textContent = monthKwh.toFixed(1) + ' kWh';
+  document.getElementById('bill-rate-lbl').textContent = `Rs ${bill.rate.toFixed(2)}/unit`;
+  document.getElementById('bill-base').textContent    = 'Rs ' + bill.base.toFixed(2);
+  document.getElementById('bill-fca').textContent     = 'Rs ' + bill.fca.toFixed(2);
+  document.getElementById('bill-gst').textContent     = 'Rs ' + bill.gst.toFixed(2);
+  document.getElementById('bill-duty').textContent    = 'Rs ' + bill.duty.toFixed(2);
+  document.getElementById('billTotal').textContent    = 'Rs ' + bill.total.toFixed(2);
+
+  for (let i = 0; i < 6; i++) {
+    const row = document.getElementById('slab-' + i);
+    if (!row) continue;
+    row.classList.toggle('active-slab', i === bill.slabIdx);
+    const cells = row.querySelectorAll('td');
+    if (cells[2]) cells[2].textContent = i === bill.slabIdx ? '✓ Active' : '—';
+  }
+
+  document.getElementById('billOverlay').classList.add('show');
+}
+
+function closeBillModal() {
+  document.getElementById('billOverlay').classList.remove('show');
+}
+document.getElementById('billOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeBillModal();
+});
+
+/* ════════════════════════════════════════════════════
+   WEMO TECH AI  —  Mistral integration
+═══════════════════════════════════════════════════════ */
+function openAIModal() {
+  document.getElementById('snapP').textContent     = fmt(parseFloat(document.getElementById('tp').textContent) || 0, 1) + ' W';
+  document.getElementById('snapPF').textContent    = document.getElementById('tpf').textContent || '—';
+  document.getElementById('snapV').textContent     = document.getElementById('tv').textContent + ' V' || '—';
+  document.getElementById('snapI').textContent     = document.getElementById('ti').textContent + ' A' || '—';
+  document.getElementById('snapF').textContent     = document.getElementById('tf').textContent + ' Hz' || '—';
+  document.getElementById('snapClass').textContent = document.getElementById('aiDevice').textContent || '—';
+
+  document.getElementById('aiResultBox').className  = 'ai-result-box loading';
+  document.getElementById('aiResultBox').textContent = 'Press the button below to send your live data to WEMO Tech AI.';
+  document.getElementById('aiCostStrip').style.display = 'none';
+  document.getElementById('btnRunAI').disabled = false;
+  const aiBtnText = document.getElementById('aiBtnText');
+  const aiDot = document.getElementById('aiDot');
+  if (aiBtnText) aiBtnText.textContent = '⚡ Analyse with WEMO Tech AI';
+  if (aiDot) aiDot.style.display = 'none';
+
+  document.getElementById('aiModalOverlay').classList.add('show');
+}
+
+function closeAIModal() {
+  document.getElementById('aiModalOverlay').classList.remove('show');
+}
+document.getElementById('aiModalOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeAIModal();
+});
+
+function runWemoAI() {
+  const btn    = document.getElementById('btnRunAI');
+  const result = document.getElementById('aiResultBox');
+  const dot    = document.getElementById('aiDot');
+  const aiBtnText = document.getElementById('aiBtnText');
+
+  btn.disabled = true;
+  if (dot) dot.style.display = 'inline-block';
+  if (aiBtnText) aiBtnText.textContent = 'Asking WEMO Tech AI…';
+  result.className  = 'ai-result-box loading';
+  result.textContent = 'Sending live readings to Mistral AI… please wait.';
+  document.getElementById('aiCostStrip').style.display = 'none';
+
+  fetch('/api/wemo-ai', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    '{}',
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      result.className  = 'ai-result-box';
+      result.textContent = '';
+
+      const rawText = d.reply || 'No response received.';
+      const sections = rawText.split(/\n(?=[A-Z][A-Z ]+:)/);
+      sections.forEach(section => {
+        const colonIdx = section.indexOf(':');
+        if (colonIdx > 0 && colonIdx < 40) {
+          const header = section.substring(0, colonIdx).trim();
+          const body   = section.substring(colonIdx + 1).trim();
+          const hDiv = document.createElement('div');
+          hDiv.className = 'ai-section-label';
+          hDiv.textContent = header;
+          result.appendChild(hDiv);
+          const bDiv = document.createElement('div');
+          bDiv.style.cssText = 'margin-bottom:10px;color:#334155;font-size:13px;line-height:1.7;';
+          bDiv.textContent = body;
+          result.appendChild(bDiv);
+        } else {
+          const bDiv = document.createElement('div');
+          bDiv.style.cssText = 'margin-bottom:8px;font-size:13px;line-height:1.7;';
+          bDiv.textContent = section.trim();
+          result.appendChild(bDiv);
+        }
+      });
+
+      if (d.kwh_24h !== undefined) {
+        document.getElementById('aiKwh').textContent = d.kwh_24h.toFixed(3);
+        document.getElementById('aiPkr').textContent = 'Rs ' + d.pkr_24h.toFixed(2);
+        document.getElementById('aiCostStrip').style.display = 'grid';
+      }
+    } else {
+      result.className  = 'ai-result-box';
+      result.textContent = 'Error from WEMO Tech AI: ' + (d.error || 'Unknown error. Check your MISTRAL_API_KEY in .env');
+    }
+    btn.disabled  = false;
+    if (dot) dot.style.display = 'none';
+    if (aiBtnText) aiBtnText.textContent = '⚡ Analyse Again';
+  })
+  .catch(err => {
+    result.className  = 'ai-result-box';
+    result.textContent = 'Network error — could not reach the server. ' + err;
+    btn.disabled  = false;
+    if (dot) dot.style.display = 'none';
+    if (aiBtnText) aiBtnText.textContent = '⚡ Analyse with WEMO Tech AI';
+  });
+}
+
+/* ════════════════════════════════════════════════════
+   PRODUCTION UTILITIES
+═══════════════════════════════════════════════════════ */
+
+// Enhanced fetch with timeout
+function fetchWithTimeout(url, options = {}, timeout = 15000) {
+  return Promise.race([
+    fetch(url, options),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), timeout)
+    )
+  ]);
+}
+
+// Input validation helpers
+function validateEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function validatePassword(pwd) {
+  return pwd && pwd.length >= 8;
+}
+
+function validateSSID(ssid) {
+  return ssid && ssid.length > 0 && ssid.length <= 32;
+}
+
+// Sanitize user input to prevent XSS
+function escapeHtml(text) {
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  };
+  return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+// Local storage helpers for persistence
+function saveUserPreference(key, value) {
+  try {
+    localStorage.setItem(`wemo_${key}`, JSON.stringify(value));
+  } catch (e) {
+    console.warn('localStorage unavailable:', e);
+  }
+}
+
+function loadUserPreference(key, defaultValue) {
+  try {
+    const stored = localStorage.getItem(`wemo_${key}`);
+    return stored ? JSON.parse(stored) : defaultValue;
+  } catch (e) {
+    return defaultValue;
+  }
+}
+
+// Rate limiting for rapid requests
+const _requestLimiters = {};
+function isRateLimited(key, delayMs = 1000) {
+  const now = Date.now();
+  const last = _requestLimiters[key] || 0;
+  if (now - last < delayMs) return true;
+  _requestLimiters[key] = now;
+  return false;
+}
+
+// Production-grade alert with auto-dismiss
+function showAlertAuto(status, msg, duration = 5000) {
+  showAlert(status, msg);
+  if (duration > 0) setTimeout(hideAlert, duration);
+}
+
+/* ════════════════════════════════════════════════════
+   ENHANCED DATA LOGS
+═══════════════════════════════════════════════════════ */
+function openDataLogsModal() {
+  document.getElementById('dataLogsModal').classList.add('show');
+  refreshDataLogs();
+}
+
+function closeDataLogsModal() {
+  document.getElementById('dataLogsModal').classList.remove('show');
+}
+
+function refreshDataLogs() {
+  const tbody = document.getElementById('logsTableBody');
+  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:16px;color:var(--slate-400);">⏳ Loading logs…</td></tr>';
+  
+  fetchWithTimeout('/api/data-logs?limit=500', {}, 10000)
+    .then(r => r.json())
+    .then(d => {
+      // 🚨 CRITICAL FIX 1: Explicitly check for server errors and throw them!
+      if (d.error) throw new Error(d.error);
+      if (!d.logs) throw new Error('Invalid response format');
+      
+      document.getElementById('logsTotal').textContent = d.total || '0';
+      document.getElementById('logsCount').textContent = d.count || '0';
+      
+      if (d.logs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:16px;color:var(--slate-400);">No data logs yet. Waiting for ESP32 data…</td></tr>';
+        return;
+      }
+      
+      tbody.innerHTML = d.logs.map(log => {
+        const prediction = escapeHtml(String(log.prediction || '—'));
+        const timestamp = escapeHtml(String(log.timestamp || '—'));
+        
+        // 🚨 CRITICAL FIX 2: Wrapped in Number() to guarantee it never crashes on .toFixed()
+        return `
+        <tr style="border-bottom:1px solid var(--slate-100);">
+          <td style="padding:6px 10px;font-family:var(--mono);color:var(--slate-700);">${timestamp}</td>
+          <td style="padding:6px 10px;text-align:center;color:var(--slate-700);">${Number(log.voltage).toFixed(1)}</td>
+          <td style="padding:6px 10px;text-align:center;color:var(--slate-700);">${Number(log.current).toFixed(2)}</td>
+          <td style="padding:6px 10px;text-align:center;color:var(--slate-700);">${Number(log.power).toFixed(1)}</td>
+          <td style="padding:6px 10px;text-align:center;color:var(--slate-700);">${Number(log.pf).toFixed(2)}</td>
+          <td style="padding:6px 10px;text-align:center;color:var(--slate-700);">${Number(log.energy).toFixed(4)}</td>
+          <td style="padding:6px 10px;text-align:center;color:var(--slate-600);font-size:10px;word-break:break-word;">${prediction.substring(0, 12)}</td>
+          <td style="padding:6px 10px;text-align:center;">
+            <button onclick="deleteLogEntry('${timestamp.replace(/'/g, "\\'")}')" style="font-size:10px;padding:2px 6px;border-radius:4px;border:1px solid #FECACA;background:var(--red-bg);color:var(--red);cursor:pointer;font-weight:600;">✕</button>
+          </td>
+        </tr>`;
+      }).join('');
+    })
+    .catch(err => {
+      // 🚨 CRITICAL FIX 3: Display the actual error message inside the table
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:16px;color:var(--red);font-weight:600;">⚠️ Error loading logs: ${escapeHtml(String(err.message))}</td></tr>`;
+    });
+}
+
+function deleteLogEntry(timestamp) {
+  if (isRateLimited('deleteLog', 500)) return;
+  if (!confirm(`Delete log entry from ${timestamp}?`)) return;
+  
+  fetchWithTimeout('/api/data-logs/clear', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: timestamp }),
+  }, 10000)
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      showAlertAuto('normal', '✓ Log entry deleted', 3000);
+      refreshDataLogs();
+    } else {
+      showAlertAuto('danger', 'Error: ' + (d.error || 'unknown'), 4000);
+    }
+  })
+  .catch(err => showAlertAuto('danger', '⚠️ Network error: ' + err.message, 4000));
+}
+
+function clearAllDataLogs() {
+  if (isRateLimited('clearAllLogs', 1000)) return;
+  if (!confirm('⚠️ Delete ALL data logs? This cannot be undone.')) return;
+  
+  const btn = event.target;
+  const orig = btn.textContent;
+  btn.textContent = '⏳ Clearing…';
+  btn.disabled = true;
+  
+  fetchWithTimeout('/api/data-logs/clear', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'all' }),
+  }, 10000)
+  .then(r => r.json())
+  .then(d => {
+    btn.textContent = orig;
+    btn.disabled = false;
+    if (d.ok) {
+      showAlertAuto('warning', '🗑 All data logs cleared', 4000);
+      refreshDataLogs();
+    } else {
+      showAlertAuto('danger', 'Error: ' + (d.error || 'unknown'), 4000);
+    }
+  })
+  .catch(err => {
+    btn.textContent = orig;
+    btn.disabled = false;
+    showAlertAuto('danger', '⚠️ Network error: ' + err.message, 4000);
+  });
+}
+
+function exportDataLogs() {
+  if (isRateLimited('exportLogs', 2000)) {
+    showAlertAuto('warning', 'Please wait before exporting again', 2000);
+    return;
+  }
+  
+  const btn = event.target;
+  const orig = btn.textContent;
+  btn.textContent = '⏳ Exporting…';
+  btn.disabled = true;
+  
+  setTimeout(() => {
+    try {
+      window.location.href = '/api/data-logs/export';
+      setTimeout(() => {
+        btn.textContent = orig;
+        btn.disabled = false;
+        showAlertAuto('normal', '✓ CSV exported successfully', 4000);
+      }, 1000);
+    } catch (err) {
+      btn.textContent = orig;
+      btn.disabled = false;
+      showAlertAuto('danger', 'Export failed: ' + err.message, 4000);
+    }
+  }, 500);
+}
+
+/* ════════════════════════════════════════════════════
+   PRODUCTION-GRADE WiFi CONFIGURATION
+═══════════════════════════════════════════════════════ */
+function openWiFiModal() {
+  // Load current config
+  fetchWithTimeout('/api/wifi-config', {}, 10000)
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        document.getElementById('wifiSSID').value = d.ssid || '';
+        document.getElementById('wifiPassword').value = '';
+        document.getElementById('wifiStatus').style.display = 'none';
+      }
+    })
+    .catch(err => {
+      console.warn('Could not load WiFi config:', err);
+    });
+  
+  document.getElementById('wifiConfigModal').classList.add('show');
+}
+
+function closeWiFiModal() {
+  document.getElementById('wifiConfigModal').classList.remove('show');
+}
+
+function saveWiFiConfig() {
+  if (isRateLimited('saveWiFi', 1000)) return;
+  
+  const ssid = document.getElementById('wifiSSID').value.trim();
+  const pwd = document.getElementById('wifiPassword').value.trim();
+  
+  // Validation
+  if (!ssid || ssid.length === 0) {
+    showStatus('error', '⚠️ WiFi SSID cannot be empty');
+    return;
+  }
+  
+  if (ssid.length > 32) {
+    showStatus('error', '⚠️ SSID too long (maximum 32 characters)');
+    return;
+  }
+  
+  if (!pwd || pwd.length < 8) {
+    showStatus('error', '⚠️ Password must be at least 8 characters');
+    return;
+  }
+  
+  if (pwd.length > 63) {
+    showStatus('error', '⚠️ Password too long (maximum 63 characters)');
+    return;
+  }
+  
+  const btn = document.getElementById('btnSaveWiFi');
+  const orig = btn.textContent;
+  btn.textContent = '⏳ Saving…';
+  btn.disabled = true;
+  
+  fetchWithTimeout('/api/wifi-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      ssid: escapeHtml(ssid), 
+      password: pwd  // Password is sent as-is (will be encrypted server-side)
+    }),
+  }, 10000)
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      const safeSSID = escapeHtml(d.ssid);
+      const safeTS = escapeHtml(d.last_updated);
+      showStatus('success', `✅ WiFi config saved for "${safeSSID}"<br/>Last updated: ${safeTS}`);
+      
+      // Save to localStorage for persistence across sessions
+      saveUserPreference('lastWiFiSSID', d.ssid);
+      
+      setTimeout(() => {
+        btn.textContent = orig;
+        btn.disabled = false;
+        closeWiFiModal();
+        showAlertAuto('normal', `✅ WiFi configuration saved. You can now send this to your ESP32.`, 5000);
+      }, 2000);
+    } else {
+      showStatus('error', '⚠️ ' + (d.error || 'Unknown error'));
+      btn.textContent = orig;
+      btn.disabled = false;
+    }
+  })
+  .catch(err => {
+    showStatus('error', '⚠️ Network error: ' + err.message);
+    btn.textContent = orig;
+    btn.disabled = false;
+  });
+}
+
+function showStatus(type, msg) {
+  const statusEl = document.getElementById('wifiStatus');
+  statusEl.innerHTML = msg;  // HTML is safe (we escape in caller)
+  statusEl.style.display = 'block';
+  
+  if (type === 'success') {
+    statusEl.style.background = 'var(--green-bg)';
+    statusEl.style.color = 'var(--green)';
+    statusEl.style.borderLeft = '4px solid var(--green)';
+  } else {
+    statusEl.style.background = 'var(--red-bg)';
+    statusEl.style.color = 'var(--red)';
+    statusEl.style.borderLeft = '4px solid var(--red)';
+  }
+}
+
+/* ════════════════════════════════════════════════════
+   DYNAMIC ML CONFIGURATION
+═══════════════════════════════════════════════════════ */
+let currentMlConfig = null;
+
+function openMlConfigModal() {
+  document.getElementById('mlConfigModal').classList.add('show');
+  const container = document.getElementById('powerFloorContainer');
+  container.innerHTML = '<div style="color:var(--slate-400);">Loading rules...</div>';
+  
+  fetch('/api/wemo-config')
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        currentMlConfig = d.config;
+        container.innerHTML = '';
+        const floors = currentMlConfig.class_power_floor || {};
+        
+        // Build an input box for every appliance floor currently in the config
+        for (const [appliance, watts] of Object.entries(floors)) {
+          container.innerHTML += `
+            <div style="background:var(--slate-50); padding:10px; border-radius:6px; border:1px solid var(--slate-200);">
+              <label style="font-size:12px; font-weight:600; color:var(--slate-700);">${escapeHtml(appliance)}</label>
+              <div style="display:flex; align-items:center; gap:8px; margin-top:4px;">
+                <input type="number" id="floor_${btoa(appliance)}" value="${watts}" step="0.1" style="width:100%; padding:6px; border:1px solid var(--slate-300); border-radius:4px;">
+                <span style="font-size:12px; color:var(--slate-500);">W</span>
+              </div>
+            </div>
+          `;
+        }
+        
+        // Add a blank one to add new rules manually
+        container.innerHTML += `
+            <div style="background:var(--blue-light); padding:10px; border-radius:6px; border:1px dashed var(--blue-mid);">
+              <label style="font-size:12px; font-weight:600; color:var(--blue-mid);">+ Add Custom Floor</label>
+              <div style="display:flex; align-items:center; gap:4px; margin-top:4px;">
+                <input type="text" id="newFloorName" placeholder="Name" style="width:50%; padding:6px; border:1px solid var(--slate-300); border-radius:4px;">
+                <input type="number" id="newFloorWatts" placeholder="Watts" step="0.1" style="width:50%; padding:6px; border:1px solid var(--slate-300); border-radius:4px;">
+              </div>
+            </div>
+        `;
+      }
+    })
+    .catch(err => {
+      container.innerHTML = `<div style="color:var(--red);">⚠️ Error loading config: ${err.message}</div>`;
+    });
+}
+
+function closeMlConfigModal() {
+  document.getElementById('mlConfigModal').classList.remove('show');
+}
+
+function saveMlConfig() {
+  if (!currentMlConfig) return;
+  
+  const floors = currentMlConfig.class_power_floor || {};
+  
+  // Read all existing inputs
+  for (const appliance of Object.keys(floors)) {
+    const input = document.getElementById(`floor_${btoa(appliance)}`);
+    if (input) {
+      const val = parseFloat(input.value);
+      if (!isNaN(val)) floors[appliance] = val;
+    }
+  }
+  
+  // Check if a new one was added
+  const newName = document.getElementById('newFloorName').value.trim();
+  const newWatts = parseFloat(document.getElementById('newFloorWatts').value);
+  if (newName && !isNaN(newWatts)) {
+    floors[newName] = newWatts;
+  }
+  
+  currentMlConfig.class_power_floor = floors;
+  
+  fetch('/api/wemo-config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(currentMlConfig)
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      showAlertAuto('normal', '✓ ML Rules Updated Successfully!', 3000);
+      closeMlConfigModal();
+    } else {
+      showAlertAuto('danger', 'Error: ' + d.error, 4000);
+    }
+  })
+  .catch(err => showAlertAuto('danger', '⚠️ Network error', 4000));
+}
+
+// Close modals on overlay click
+document.getElementById('dataLogsModal').addEventListener('click', function(e) {
+  if (e.target === this) closeDataLogsModal();
+});
+document.getElementById('wifiConfigModal').addEventListener('click', function(e) {
+  if (e.target === this) closeWiFiModal();
+});
+document.getElementById('mlConfigModal').addEventListener('click', function(e) {
+  if (e.target === this) closeMlConfigModal();
+});
+
+
+/* ─── Boot ────────────────────────────────────────── */
+// Load relay state immediately on page load
+function initRelayState() {
+  fetch('/api/relay-state')
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        const relayOn = d.relay === 1;
+        const badge = document.getElementById('relayStateBadge');
+        badge.textContent = relayOn ? '● Relay ON' : '● Relay OFF';
+        badge.className   = 'relay-state-badge ' + (relayOn ? 'on' : 'off');
+        console.log(`[RELAY] Loaded state: ${relayOn ? 'ON' : 'OFF'}`);
+      }
+    })
+    .catch(err => console.warn('[RELAY] Could not load initial state:', err));
+}
+
+// Initialize relay state BEFORE polling begins
+initRelayState();
+
+// Poll intervals:
+//  /live          → 1.5 s  (ESP32 sends every ~2 s, we poll every 1.5 s for snappy display)
+//  /history       → 2.5 s  (chart data, slightly slower is fine)
+//  /training-data → 15 s   (table rarely changes)
+setInterval(pollLive,         1000);
+setInterval(pollHistory,      2500);
+setInterval(pollTrainingData, 15000);
+
+pollLive();
+pollHistory();
+pollTrainingData();
+
+</script>
+</body>
+</html>

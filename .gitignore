@@ -1,0 +1,17 @@
+# Environments
+.env
+.venv/
+__pycache__/
+
+# Dynamic ML Models
+wemo_knn_model.pkl
+wemo_scaler.pkl
+
+# Live User Data
+sensor_data_log.csv
+wemo_training_data.csv
+
+# Dynamic Configurations
+wemo_config.json
+relay_state.json
+wifi_config.json
