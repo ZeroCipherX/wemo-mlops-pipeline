@@ -136,7 +136,7 @@ STABILITY_VARIANCE_MAX = 5.0  # Watts — max allowed spread across the window
 # ─── User Presence Detection (Twilio Credit Protection) ───────────────────────
 # The dashboard polls /live every ~1 s. If we saw a poll within this window,
 # the user is actively watching — no need to burn a WhatsApp message.
-USER_PRESENT_TIMEOUT = 30.0   # seconds since last /live poll = "user is present"
+USER_PRESENT_TIMEOUT = 0.5   # seconds since last /live poll = "user is present"
 _last_dashboard_ping  = 0.0   # epoch timestamp, updated on every /live request
 
 def _user_is_present() -> bool:
