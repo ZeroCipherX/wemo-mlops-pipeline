@@ -236,19 +236,21 @@ def reset_smoother():
 # ─── UPDATED: Unknown Load Tracker (Detect -> Alert -> Name -> Record) ────────
 _unk_lock = threading.Lock()
 _unk = {
-    "phase": "idle",       # idle, alerted (waiting for name), recording
+    "phase": "idle",       # idle, stabilizing, alerted, recording
     "power_snap": 0.0,
     "pf_snap": 0.0,
     "i_snap": 0.0,
     "pending_name": "",
     "readings": [],
-    "alert_sent": False
+    "alert_sent": False,
+    "stability_buffer": [] # <--- Buffer for 3-second check
 }
 
 def _reset_unk_locked():
     _unk.update({
         "phase": "idle", "power_snap": 0.0, "pf_snap": 0.0, "i_snap": 0.0,
-        "pending_name": "", "readings": [], "alert_sent": False
+        "pending_name": "", "readings": [], "alert_sent": False,
+        "stability_buffer": []
     })
 
 
@@ -466,25 +468,49 @@ def ingest():
 
         # ─── New targeted unknown-load logic ───
         with _unk_lock:
-            # 1. Detect Anomaly -> Alert and wait for name
-            if knn_result["is_anomaly"] and power > NO_LOAD_RECORD_THRESHOLD and _unk["phase"] == "idle":
-                _unk["phase"] = "alerted"
-                _unk["power_snap"] = power
-                _unk["pf_snap"] = pf
-                _unk["i_snap"] = i
-                if not _unk["alert_sent"]:
-                    _unk["alert_sent"] = True
-                    threading.Thread(
-                        target=send_whatsapp_unknown_alert, 
-                        args=(power, pf, i), 
-                        daemon=True
-                    ).start()
+            # 1. Active Stability Window Verification
+            if _unk["phase"] == "stabilizing":
+                if power <= NO_LOAD_RECORD_THRESHOLD or not knn_result["is_anomaly"]:
+                    # Power dropped or KNN recognized it during the 3 seconds -> abort alert
+                    _reset_unk_locked()
+                else:
+                    # Still an anomaly, add to the buffer
+                    _unk["stability_buffer"].append(power)
+                    
+                    # Maintain a rolling window of 3 samples (3 seconds)
+                    if len(_unk["stability_buffer"]) > STABILIZE_SECS:
+                        _unk["stability_buffer"].pop(0)
+                    
+                    # Once we have 3 consecutive samples, check for stability
+                    if len(_unk["stability_buffer"]) == STABILIZE_SECS:
+                        # Variance Check: Max reading minus Min reading <= 5.0 Watts
+                        p_variance = max(_unk["stability_buffer"]) - min(_unk["stability_buffer"])
+                        
+                        if p_variance <= 5.0:
+                            # Load is stable! Trigger the Twilio Alert
+                            _unk["phase"] = "alerted"
+                            _unk["power_snap"] = power
+                            _unk["pf_snap"] = pf
+                            _unk["i_snap"] = i
+                            if not _unk["alert_sent"]:
+                                _unk["alert_sent"] = True
+                                threading.Thread(
+                                    target=send_whatsapp_unknown_alert, 
+                                    args=(power, pf, i), 
+                                    daemon=True
+                                ).start()
+                            _unk["stability_buffer"].clear()
 
-            # 2. If load drops back to zero before naming/recording, reset safely
+            # 2. Detect New Anomaly -> Start Stability Window
+            elif knn_result["is_anomaly"] and power > NO_LOAD_RECORD_THRESHOLD and _unk["phase"] == "idle":
+                _unk["phase"] = "stabilizing"
+                _unk["stability_buffer"] = [power]
+
+            # 3. If load drops back to zero before naming/recording, reset safely
             elif power < NO_LOAD_RECORD_THRESHOLD and _unk["phase"] in ["alerted", "recording"]:
                 _reset_unk_locked()
 
-            # 3. If user has named it, collect 30 samples
+            # 4. If user has named it, collect 30 samples
             elif _unk["phase"] == "recording":
                 _unk["readings"].append({"power_W": round(power, 3), "power_factor": round(pf, 4)})
                 
@@ -531,6 +557,7 @@ def ingest():
             health_text = f"Capturing {cnt}/{RECORD_TARGET} readings. Do not unplug!"
             dev_status  = "warning"
         else:
+            # Handles "idle" and "stabilizing" transparently for the UI
             pred_text   = knn_result["label"]
             health_text = knn_result["health"]
             dev_status  = knn_result["status"]
