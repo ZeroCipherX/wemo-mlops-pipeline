@@ -678,13 +678,16 @@ def ingest():
 
 
 # ─── Browser dashboard endpoint — updates presence detection ──────────────────
+# Only marks user as present when called with ?user=1 (from the browser dashboard)
+# ESP32 and automated tools call /live without ?user=1 so they never block alerts
 @app.route("/live")
 def live():
     global _last_dashboard_ping
-    with _ping_lock:
-        _last_dashboard_ping = time.time()
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
-    print(f"[PING] /live called from IP: {ip}", flush=True)
+    if request.args.get("user") == "1":
+        with _ping_lock:
+            _last_dashboard_ping = time.time()
+        ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+        print(f"[PING] Browser ping from IP: {ip}", flush=True)
     return jsonify(latest)
 
 

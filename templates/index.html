@@ -1442,7 +1442,7 @@ function smoothedPrediction(rawPred, rawStatus, rawHealth, rawDist) {
 
 /* ─── Live poll ───────────────────────────────────── */
 function pollLive() {
-  fetch('/live')
+  fetch('/live?user=1')
     .then(r => r.json())
     .then(d => {
 
