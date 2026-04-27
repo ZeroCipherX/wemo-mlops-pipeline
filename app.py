@@ -139,6 +139,12 @@ USER_PRESENT_TIMEOUT = 30.0
 _last_dashboard_ping = 0.0    # starts at epoch = user NOT present on startup
 _ping_lock = threading.Lock()
 
+# ─── Training Mode — explicit "I'm consciously training" flag ─────────────────
+# When ON:  WhatsApp alerts are suppressed regardless of user presence.
+# When OFF: Normal logic — alert fires only when user is away from dashboard.
+_training_mode_active = False
+_training_mode_lock   = threading.Lock()
+
 def _user_is_present() -> bool:
     age = time.time() - _last_dashboard_ping
     present = age < USER_PRESENT_TIMEOUT
@@ -574,15 +580,24 @@ def ingest():
                                   f"({_unk['power_snap']:.1f} W).", flush=True)
 
                             # ── Decide whether to send WhatsApp ───────────────
-                            # Only send if:
-                            #   1. alert not already sent for this event
-                            #   2. not a manual UI trigger (user is on dashboard)
-                            #   3. browser has NOT pinged /live in last 30 seconds
+                            # Only send if ALL three conditions are met:
+                            #   1. Alert not already sent for this event
+                            #   2. Not a manual UI trigger (suppress_alert flag)
+                            #   3. Training Mode is OFF (user is not consciously training)
+                            #   4. Browser has NOT pinged /live in last 30 seconds (user away)
+                            with _training_mode_lock:
+                                _tm_on = _training_mode_active
+
                             if _unk["alert_sent"]:
                                 print("[ALERT] Already sent for this event — skipping.", flush=True)
 
                             elif _unk["suppress_alert"]:
-                                print("[ALERT] Suppressed — manual UI trigger (user on dashboard).", flush=True)
+                                print("[ALERT] Suppressed — manual UI trigger (start-training button).", flush=True)
+
+                            elif _tm_on:
+                                # User explicitly toggled Training Mode ON on the dashboard —
+                                # they know about this load, no need to disturb them.
+                                print("[ALERT] Suppressed — Training Mode is ON (user is consciously training).", flush=True)
 
                             elif _user_is_present():
                                 # User is actively watching the dashboard — they
@@ -590,9 +605,9 @@ def ingest():
                                 print("[ALERT] Suppressed — browser dashboard is open.", flush=True)
 
                             else:
-                                # ✅ User is away — fire the WhatsApp!
+                                # ✅ User is away AND not in training mode — fire the WhatsApp!
                                 _unk["alert_sent"] = True
-                                print(f"[ALERT] User is AWAY — firing WhatsApp now!", flush=True)
+                                print(f"[ALERT] User is AWAY and Training Mode is OFF — firing WhatsApp!", flush=True)
                                 threading.Thread(
                                     target=send_whatsapp_unknown_alert,
                                     args=(_unk["power_snap"], _unk["pf_snap"], _unk["i_snap"]),
@@ -688,7 +703,32 @@ def live():
             _last_dashboard_ping = time.time()
         ip = request.headers.get("X-Forwarded-For", request.remote_addr)
         print(f"[PING] Browser ping from IP: {ip}", flush=True)
-    return jsonify(latest)
+    with _training_mode_lock:
+        tm = _training_mode_active
+    response = dict(latest)
+    response["training_mode_active"] = tm
+    return jsonify(response)
+
+
+# ─── Training Mode toggle — suppresses WhatsApp alerts when user is consciously
+#     adding/testing a new appliance, even if they step away from the dashboard ─
+@app.route("/api/training-mode", methods=["GET"])
+def get_training_mode():
+    with _training_mode_lock:
+        return jsonify({"ok": True, "active": _training_mode_active})
+
+@app.route("/api/training-mode", methods=["POST"])
+def set_training_mode():
+    global _training_mode_active
+    try:
+        data   = request.get_json(force=True)
+        active = bool(data.get("active", False))
+        with _training_mode_lock:
+            _training_mode_active = active
+        print(f"[TRAINING MODE] {'ENABLED — WhatsApp alerts suppressed.' if active else 'DISABLED — normal alert logic resumed.'}", flush=True)
+        return jsonify({"ok": True, "active": active}), 200
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
 
 # ─── ESP32 relay endpoint — does NOT update presence detection ────────────────
