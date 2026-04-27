@@ -303,8 +303,8 @@ def send_whatsapp_unknown_alert(power: float, pf: float, current: float):
             f"⚡ *Power:* {power:.1f} W\n"
             f"🔌 *Current:* {current:.2f} A\n"
             f"📉 *PF:* {pf:.2f}\n\n"
-            f"Please check your browser Command Center to name this load. "
-            f"Training will begin automatically after you confirm."
+           f"Tap to open your Command Center and name this load:\n"
+           f"http://13.60.236.168/"
         )
 
         data = {
