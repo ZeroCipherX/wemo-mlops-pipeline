@@ -145,6 +145,36 @@ _ping_lock = threading.Lock()
 _training_mode_active = False
 _training_mode_lock   = threading.Lock()
 
+# ─── Load Automation (Timer + Unit Cutoff) ────────────────────────────────────
+# mode = "idle"        → nothing running
+# mode = "timer"       → relay turns OFF when time.time() >= end_time
+# mode = "unit_cutoff" → relay turns OFF when PZEM energy delta >= requested_kwh
+_automation_lock = threading.Lock()
+_automation = {
+    "mode":          "idle",
+    "end_time":      0.0,      # unix timestamp for timer cutoff
+    "duration_secs": 0,        # original duration in seconds (for display)
+    "baseline_kwh":  0.0,      # PZEM energy reading at start of unit cutoff
+    "target_kwh":    0.0,      # baseline + user-requested units
+    "requested_kwh": 0.0,      # what user asked for (for display)
+}
+
+def _automation_watchdog():
+    """Daemon thread — fires every second to check if timer has expired."""
+    while True:
+        time.sleep(1)
+        with _automation_lock:
+            if _automation["mode"] != "timer":
+                continue
+            if time.time() >= _automation["end_time"]:
+                print("[TIMER] Time's up — turning relay OFF automatically.", flush=True)
+                _automation["mode"] = "idle"
+        # Turn relay off outside the lock to avoid deadlock
+        latest["relay_desired"] = 0
+        save_relay_state(0, user_set=True)
+
+threading.Thread(target=_automation_watchdog, daemon=True).start()
+
 def _user_is_present() -> bool:
     age = time.time() - _last_dashboard_ping
     present = age < USER_PRESENT_TIMEOUT
@@ -686,6 +716,22 @@ def ingest():
 
         threading.Thread(target=log_sensor_data, args=(latest.copy(),), daemon=True).start()
 
+        # ── Unit Cutoff Check — runs on every data packet ─────────────────────
+        # Checked here (not in watchdog) so it reacts on the exact packet that
+        # crosses the threshold rather than waiting up to 1 second.
+        with _automation_lock:
+            if _automation["mode"] == "unit_cutoff":
+                current_e = float(data.get("e", latest.get("e", 0)))
+                if current_e >= _automation["target_kwh"]:
+                    print(
+                        f"[UNIT CUTOFF] Target reached "
+                        f"({current_e:.4f} kWh >= {_automation['target_kwh']:.4f} kWh) "
+                        f"— turning relay OFF.", flush=True
+                    )
+                    _automation["mode"] = "idle"
+                    latest["relay_desired"] = 0
+                    save_relay_state(0, user_set=True)
+
         return jsonify({"ok": True, "classified_as": pred_text}), 200
     except Exception as exc:
         print(f"[ERROR] ingest: {exc}", flush=True)
@@ -705,8 +751,11 @@ def live():
         print(f"[PING] Browser ping from IP: {ip}", flush=True)
     with _training_mode_lock:
         tm = _training_mode_active
+    with _automation_lock:
+        auto = dict(_automation)
     response = dict(latest)
     response["training_mode_active"] = tm
+    response["automation"] = auto
     return jsonify(response)
 
 
@@ -1173,6 +1222,94 @@ def set_wifi_config():
         }), 200
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+# ─── Load Automation Endpoints ────────────────────────────────────────────────
+
+@app.route("/api/timer", methods=["POST"])
+def set_timer():
+    try:
+        data  = request.get_json(force=True)
+        days  = int(data.get("days",    0))
+        hours = int(data.get("hours",   0))
+        mins  = int(data.get("minutes", 0))
+        secs  = int(data.get("seconds", 0))
+        total = days * 86400 + hours * 3600 + mins * 60 + secs
+        if total <= 0:
+            return jsonify({"ok": False, "error": "Duration must be greater than zero."}), 400
+
+        # Turn relay ON immediately
+        latest["relay_desired"] = 1
+        save_relay_state(1, user_set=True)
+
+        with _automation_lock:
+            _automation["mode"]          = "timer"
+            _automation["end_time"]      = time.time() + total
+            _automation["duration_secs"] = total
+            _automation["baseline_kwh"]  = 0.0
+            _automation["target_kwh"]    = 0.0
+            _automation["requested_kwh"] = 0.0
+
+        print(f"[TIMER] Started — relay ON for {total}s ({days}d {hours}h {mins}m {secs}s).", flush=True)
+        return jsonify({"ok": True, "duration_secs": total,
+                        "message": f"Relay ON. Will turn OFF automatically in {total}s."}), 200
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.route("/api/timer/cancel", methods=["POST"])
+def cancel_timer():
+    with _automation_lock:
+        _automation["mode"] = "idle"
+    print("[TIMER] Cancelled by user.", flush=True)
+    return jsonify({"ok": True, "message": "Timer cancelled."}), 200
+
+
+@app.route("/api/unit-cutoff", methods=["POST"])
+def set_unit_cutoff():
+    try:
+        data  = request.get_json(force=True)
+        units = float(data.get("units", 0))
+        if units <= 0:
+            return jsonify({"ok": False, "error": "Units must be greater than zero."}), 400
+
+        # Delta logic — take current PZEM reading as baseline
+        baseline = float(latest.get("e", 0))
+        target   = round(baseline + units, 6)
+
+        # Turn relay ON immediately
+        latest["relay_desired"] = 1
+        save_relay_state(1, user_set=True)
+
+        with _automation_lock:
+            _automation["mode"]          = "unit_cutoff"
+            _automation["baseline_kwh"]  = baseline
+            _automation["target_kwh"]    = target
+            _automation["requested_kwh"] = units
+            _automation["end_time"]      = 0.0
+            _automation["duration_secs"] = 0
+
+        print(
+            f"[UNIT CUTOFF] Started — baseline={baseline:.4f} kWh, "
+            f"target={target:.4f} kWh (+{units} kWh).", flush=True
+        )
+        return jsonify({
+            "ok": True,
+            "baseline_kwh": baseline,
+            "target_kwh":   target,
+            "message": f"Relay ON. Will cut off after {units} kWh consumed."
+        }), 200
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.route("/api/unit-cutoff/cancel", methods=["POST"])
+def cancel_unit_cutoff():
+    with _automation_lock:
+        _automation["mode"] = "idle"
+    print("[UNIT CUTOFF] Cancelled by user.", flush=True)
+    return jsonify({"ok": True, "message": "Unit cutoff cancelled."}), 200
+
 
 # ─── Health check — safe for AWS ALB, does NOT affect presence detection ──────
 @app.route("/health")

@@ -653,6 +653,77 @@ body {
 .ai-cost-val { font-family:var(--mono); font-size:22px; font-weight:700; color:var(--purple); margin-top:3px; }
 .ai-cost-sub { font-size:10px; color:var(--slate-400); margin-top:1px; }
 
+/* ─── Load Control Card ──────────────────────────── */
+.load-ctrl-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 4px;
+}
+@media(max-width:600px){ .load-ctrl-grid { grid-template-columns: 1fr; } }
+
+.lc-panel {
+  background: var(--slate-50);
+  border: 1.5px solid var(--slate-200);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.lc-panel-title {
+  font-size: 12px; font-weight: 700;
+  color: var(--slate-700); margin-bottom: 10px;
+  display: flex; align-items: center; gap: 6px;
+  text-transform: uppercase; letter-spacing: .6px;
+}
+.lc-inputs {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.lc-input-group {
+  display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; min-width: 48px;
+}
+.lc-input-group label {
+  font-size: 9.5px; color: var(--slate-400); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .5px;
+}
+.lc-input-group input {
+  width: 100%; padding: 6px 4px; text-align: center;
+  border: 1.5px solid var(--slate-200); border-radius: 7px;
+  font-family: var(--mono); font-size: 14px; font-weight: 600;
+  color: var(--slate-900); background: var(--white);
+  outline: none; transition: border-color .15s;
+}
+.lc-input-group input:focus { border-color: var(--blue-mid); }
+.lc-input-group input::-webkit-inner-spin-button,
+.lc-input-group input::-webkit-outer-spin-button { opacity: 1; }
+
+.btn-lc-start {
+  width: 100%; padding: 9px; border: none; border-radius: 8px;
+  font-family: var(--font); font-size: 13px; font-weight: 700;
+  cursor: pointer; transition: all .18s;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.btn-lc-timer  { background: var(--blue-mid); color: #fff; }
+.btn-lc-unit   { background: var(--green);    color: #fff; }
+.btn-lc-start:hover  { opacity: .88; }
+.btn-lc-start:active { transform: scale(.97); }
+.btn-lc-start:disabled { opacity: .45; cursor: not-allowed; }
+
+.btn-lc-cancel {
+  width: 100%; padding: 7px; margin-top: 6px; border-radius: 8px;
+  font-family: var(--font); font-size: 12px; font-weight: 600;
+  border: 1.5px solid var(--slate-200); background: var(--white);
+  color: var(--slate-500); cursor: pointer; transition: all .15s;
+}
+.btn-lc-cancel:hover { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+
+.lc-status {
+  margin-top: 8px; padding: 7px 10px; border-radius: 7px;
+  font-size: 11.5px; font-weight: 600; text-align: center;
+  display: none;
+}
+.lc-status.active-timer { display: block; background: #EFF6FF; color: var(--blue-mid); border: 1px solid #BFDBFE; }
+.lc-status.active-unit  { display: block; background: var(--green-bg); color: var(--green); border: 1px solid #A7F3D0; }
+.lc-status.done         { display: block; background: var(--slate-100); color: var(--slate-500); border: 1px solid var(--slate-200); }
+
 .btn-run-ai {
   width:100%; padding:12px; margin-bottom:8px;
   background:linear-gradient(135deg,#7C3AED,#2563EB); color:#fff;
@@ -741,6 +812,74 @@ body {
       <div class="health-lbl">TFT Display</div>
       <div class="health-badge"><span class="health-dot-sm"></span><span id="hc-tft-txt">Waiting</span></div>
       <div class="health-detail" id="hc-tft-det">—</div>
+    </div>
+  </div>
+
+  <!-- ─── Load Control ─────────────────────────────────────────────── -->
+  <p class="section-label" style="margin-top:20px;">Load Control</p>
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      <div class="card-title">
+        <span class="card-title-icon">⏱</span>
+        Automated Relay Control
+      </div>
+      <div style="font-size:11px;color:var(--slate-400);">Set a timer or energy limit — relay turns OFF automatically</div>
+    </div>
+    <div class="card-body">
+      <div class="load-ctrl-grid">
+
+        <!-- Timer Panel -->
+        <div class="lc-panel">
+          <div class="lc-panel-title">⏳ Run for a Duration</div>
+          <div class="lc-inputs">
+            <div class="lc-input-group">
+              <label>Days</label>
+              <input type="number" id="timerDays" min="0" max="365" value="0" placeholder="0"/>
+            </div>
+            <div class="lc-input-group">
+              <label>Hours</label>
+              <input type="number" id="timerHours" min="0" max="23" value="0" placeholder="0"/>
+            </div>
+            <div class="lc-input-group">
+              <label>Min</label>
+              <input type="number" id="timerMins" min="0" max="59" value="0" placeholder="0"/>
+            </div>
+            <div class="lc-input-group">
+              <label>Sec</label>
+              <input type="number" id="timerSecs" min="0" max="59" value="0" placeholder="0"/>
+            </div>
+          </div>
+          <button class="btn-lc-start btn-lc-timer" id="btnStartTimer" onclick="startTimer()">
+            ▶ Start Timer
+          </button>
+          <button class="btn-lc-cancel" id="btnCancelTimer" onclick="cancelTimer()" style="display:none;">
+            ✕ Cancel Timer
+          </button>
+          <div class="lc-status" id="timerStatus"></div>
+        </div>
+
+        <!-- Unit Cutoff Panel -->
+        <div class="lc-panel">
+          <div class="lc-panel-title">⚡ Run Until Units Consumed</div>
+          <div class="lc-inputs" style="align-items:flex-end;">
+            <div class="lc-input-group" style="flex:2;">
+              <label>Units (kWh)</label>
+              <input type="number" id="unitCutoffVal" min="0.001" step="0.1" placeholder="e.g. 2.0"/>
+            </div>
+            <div style="padding-bottom:2px;font-size:11px;color:var(--slate-400);white-space:nowrap;">
+              kWh from now
+            </div>
+          </div>
+          <button class="btn-lc-start btn-lc-unit" id="btnStartUnit" onclick="startUnitCutoff()">
+            ▶ Start Unit Cutoff
+          </button>
+          <button class="btn-lc-cancel" id="btnCancelUnit" onclick="cancelUnitCutoff()" style="display:none;">
+            ✕ Cancel Cutoff
+          </button>
+          <div class="lc-status" id="unitStatus"></div>
+        </div>
+
+      </div>
     </div>
   </div>
 
@@ -1634,6 +1773,11 @@ function pollLive() {
         if (toggle && toggle.checked !== d.training_mode_active) {
           _syncTrainingModeUI(d.training_mode_active);
         }
+      }
+
+      // Load Control — sync timer and unit cutoff status from server
+      if (d.automation) {
+        _syncAutomationUI(d.automation, parseFloat(d.e) || 0);
       }
     })
     .catch(() => {});
@@ -2591,6 +2735,165 @@ function _syncTrainingModeUI(active) {
   } else {
     bar.classList.remove('active');
     desc.textContent = 'OFF — alerts active when you\'re away';
+  }
+}
+
+
+/* ════════════════════════════════════════════════════
+   LOAD CONTROL — Timer & Unit Cutoff
+   Both features turn relay ON immediately on start,
+   then turn it OFF automatically when condition is met.
+   Status is synced from server on every pollLive() call.
+═══════════════════════════════════════════════════════ */
+
+let _timerInterval = null;  // client-side countdown interval (display only)
+
+function startTimer() {
+  const days  = parseInt(document.getElementById('timerDays').value)  || 0;
+  const hours = parseInt(document.getElementById('timerHours').value) || 0;
+  const mins  = parseInt(document.getElementById('timerMins').value)  || 0;
+  const secs  = parseInt(document.getElementById('timerSecs').value)  || 0;
+  const total = days * 86400 + hours * 3600 + mins * 60 + secs;
+
+  if (total <= 0) {
+    showAlertAuto('warning', '⚠️ Please enter a duration greater than zero.', 3000);
+    return;
+  }
+
+  document.getElementById('btnStartTimer').disabled = true;
+
+  fetch('/api/timer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ days, hours, minutes: mins, seconds: secs }),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      showAlertAuto('success', `⏱ Timer started — relay will turn OFF in ${_fmtSecs(total)}.`, 4000);
+    } else {
+      showAlertAuto('danger', '⚠️ ' + (d.error || 'Timer failed.'), 4000);
+      document.getElementById('btnStartTimer').disabled = false;
+    }
+  })
+  .catch(() => {
+    showAlertAuto('danger', '⚠️ Network error starting timer.', 4000);
+    document.getElementById('btnStartTimer').disabled = false;
+  });
+}
+
+function cancelTimer() {
+  fetch('/api/timer/cancel', { method: 'POST' })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      _clearTimerUI();
+      showAlertAuto('info', '⏱ Timer cancelled.', 3000);
+    }
+  });
+}
+
+function startUnitCutoff() {
+  const units = parseFloat(document.getElementById('unitCutoffVal').value);
+  if (!units || units <= 0) {
+    showAlertAuto('warning', '⚠️ Please enter a valid kWh amount.', 3000);
+    return;
+  }
+
+  document.getElementById('btnStartUnit').disabled = true;
+
+  fetch('/api/unit-cutoff', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ units }),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      showAlertAuto('success', `⚡ Unit cutoff set — relay will turn OFF after ${units} kWh consumed.`, 4000);
+    } else {
+      showAlertAuto('danger', '⚠️ ' + (d.error || 'Unit cutoff failed.'), 4000);
+      document.getElementById('btnStartUnit').disabled = false;
+    }
+  })
+  .catch(() => {
+    showAlertAuto('danger', '⚠️ Network error setting unit cutoff.', 4000);
+    document.getElementById('btnStartUnit').disabled = false;
+  });
+}
+
+function cancelUnitCutoff() {
+  fetch('/api/unit-cutoff/cancel', { method: 'POST' })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      _clearUnitUI();
+      showAlertAuto('info', '⚡ Unit cutoff cancelled.', 3000);
+    }
+  });
+}
+
+function _fmtSecs(s) {
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sc = s % 60;
+  let parts = [];
+  if (d > 0) parts.push(d + 'd');
+  if (h > 0) parts.push(h + 'h');
+  if (m > 0) parts.push(m + 'm');
+  if (sc > 0 || parts.length === 0) parts.push(sc + 's');
+  return parts.join(' ');
+}
+
+function _clearTimerUI() {
+  const btn    = document.getElementById('btnStartTimer');
+  const cancel = document.getElementById('btnCancelTimer');
+  const status = document.getElementById('timerStatus');
+  if (btn)    { btn.disabled = false; }
+  if (cancel) { cancel.style.display = 'none'; }
+  if (status) { status.className = 'lc-status'; status.textContent = ''; }
+  if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
+}
+
+function _clearUnitUI() {
+  const btn    = document.getElementById('btnStartUnit');
+  const cancel = document.getElementById('btnCancelUnit');
+  const status = document.getElementById('unitStatus');
+  if (btn)    { btn.disabled = false; }
+  if (cancel) { cancel.style.display = 'none'; }
+  if (status) { status.className = 'lc-status'; status.textContent = ''; }
+}
+
+// Called from pollLive() to sync UI with server automation state
+function _syncAutomationUI(auto, currentEnergy) {
+  const timerStatus  = document.getElementById('timerStatus');
+  const unitStatus   = document.getElementById('unitStatus');
+  const btnStartT    = document.getElementById('btnStartTimer');
+  const btnCancelT   = document.getElementById('btnCancelTimer');
+  const btnStartU    = document.getElementById('btnStartUnit');
+  const btnCancelU   = document.getElementById('btnCancelUnit');
+  if (!timerStatus) return;
+
+  if (auto.mode === 'timer') {
+    const remaining = Math.max(0, Math.round(auto.end_time - Date.now() / 1000));
+    timerStatus.className    = 'lc-status active-timer';
+    timerStatus.textContent  = `⏱ Running — ${_fmtSecs(remaining)} remaining`;
+    btnStartT.disabled       = true;
+    btnCancelT.style.display = 'block';
+    _clearUnitUI();
+  } else if (auto.mode === 'unit_cutoff') {
+    const consumed = Math.max(0, currentEnergy - auto.baseline_kwh);
+    const pct      = auto.requested_kwh > 0 ? Math.min(100, (consumed / auto.requested_kwh * 100)).toFixed(1) : 0;
+    unitStatus.className    = 'lc-status active-unit';
+    unitStatus.textContent  = `⚡ ${consumed.toFixed(4)} / ${auto.requested_kwh} kWh (${pct}%)`;
+    btnStartU.disabled       = true;
+    btnCancelU.style.display = 'block';
+    _clearTimerUI();
+  } else {
+    // idle — clear both
+    _clearTimerUI();
+    _clearUnitUI();
   }
 }
 
