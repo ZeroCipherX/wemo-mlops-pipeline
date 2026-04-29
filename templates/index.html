@@ -1108,11 +1108,11 @@ body {
 <div class="bill-overlay" id="billOverlay">
   <div class="bill-box">
     <div class="bill-title">🧾 KE Electricity Bill Estimator</div>
-    <div class="bill-sub">Karachi Electric (K-Electric) domestic tariff — NEPRA approved rates. Based on energy accumulated by your WEMO meter.</div>
+    <div class="bill-sub">K-Electric domestic tariff — Jan 2026 cumulative slab rates. <strong>Monthly estimate</strong> based on your current power draw running 24h/day for 30 days.</div>
 
     <div class="bill-chips">
       <div class="bill-chip">
-        <div class="bill-chip-lbl">Units (kWh)</div>
+        <div class="bill-chip-lbl">Energy (PZEM)</div>
         <div class="bill-chip-val" id="billUnits">—</div>
       </div>
       <div class="bill-chip">
@@ -1129,11 +1129,12 @@ body {
       <thead><tr><th>Charge</th><th>Rate</th><th>Amount (Rs)</th></tr></thead>
       <tbody>
         <tr><td>Base Energy Tariff</td><td id="bill-rate-lbl">—</td><td id="bill-base">—</td></tr>
-        <tr><td>Fuel Cost Adjustment (FCA)</td><td>Rs 5.18/unit</td><td id="bill-fca">—</td></tr>
-        <tr><td>GST (18%)</td><td>18%</td><td id="bill-gst">—</td></tr>
-        <tr><td>Electricity Duty (2%)</td><td>2%</td><td id="bill-duty">—</td></tr>
+        <tr><td>Fuel Cost Adjustment (FCA)</td><td>≈ Rs 2.50/unit (varies)</td><td id="bill-fca">—</td></tr>
+        <tr><td>GST (17%)</td><td>17%</td><td id="bill-gst">—</td></tr>
+        <tr><td>Electricity Duty (1.5%)</td><td>1.5%</td><td id="bill-duty">—</td></tr>
+        <tr id="bill-income-tax-row" style="display:none"><td>Income Tax (7.5% — unprotected)</td><td>7.5%</td><td id="bill-income-tax">—</td></tr>
         <tr><td>TV Fee (fixed)</td><td>Rs 35/month</td><td>35.00</td></tr>
-        <tr><td>Meter Rent (fixed)</td><td>Rs 15/month</td><td>15.00</td></tr>
+        <tr><td>Meter Rent (fixed)</td><td>Rs 100/month</td><td>100.00</td></tr>
       </tbody>
     </table>
 
@@ -1143,22 +1144,26 @@ body {
     </div>
 
     <div class="bill-note">
-      ⚠️ This estimate is based on kWh accumulated since last PZEM reset. Actual bill may vary based on meter reading cycle, peak/off-peak rates, and monthly FCA revision by NEPRA.
+      ⚠️ Bill is a <strong>monthly projection</strong> based on your current wattage running 24h/day × 30 days. FCA varies every month — actual bill will differ. Rates effective Jan 2026, subject to NEPRA revision.
     </div>
 
     <details style="margin-bottom:10px;">
-      <summary style="font-size:11.5px;font-weight:700;color:var(--slate-500);cursor:pointer;margin-bottom:6px;">KE Domestic Slab Rates (NEPRA)</summary>
+      <summary style="font-size:11.5px;font-weight:700;color:var(--slate-500);cursor:pointer;margin-bottom:6px;">KE Domestic Slab Rates (Jan 2026 — Cumulative)</summary>
       <table class="bill-slabs">
-        <thead><tr><th>Units</th><th>Tariff (Rs/kWh)</th><th>Status</th></tr></thead>
+        <thead><tr><th>Units</th><th>Tariff (Rs/kWh)</th><th>Type</th><th>Status</th></tr></thead>
         <tbody>
-          <tr id="slab-0"><td>≤ 50 (Protected)</td><td>7.74</td><td>—</td></tr>
-          <tr id="slab-1"><td>1 – 100</td><td>24.73</td><td>—</td></tr>
-          <tr id="slab-2"><td>101 – 200</td><td>28.82</td><td>—</td></tr>
-          <tr id="slab-3"><td>201 – 300</td><td>32.73</td><td>—</td></tr>
-          <tr id="slab-4"><td>301 – 700</td><td>37.07</td><td>—</td></tr>
-          <tr id="slab-5"><td>&gt; 700</td><td>43.07</td><td>—</td></tr>
+          <tr id="slab-0"><td>0 – 50</td><td>16.48</td><td>Protected</td><td>—</td></tr>
+          <tr id="slab-1"><td>51 – 100</td><td>20.85</td><td>Protected</td><td>—</td></tr>
+          <tr id="slab-2"><td>101 – 200</td><td>22.94</td><td>Protected</td><td>—</td></tr>
+          <tr id="slab-3"><td>201 – 300</td><td>27.14</td><td>Unprotected</td><td>—</td></tr>
+          <tr id="slab-4"><td>301 – 700</td><td>32.03</td><td>Unprotected</td><td>—</td></tr>
+          <tr id="slab-5"><td>&gt; 700</td><td>35.24</td><td>Unprotected</td><td>—</td></tr>
         </tbody>
       </table>
+      <div style="font-size:10px;color:var(--slate-400);margin-top:6px;line-height:1.5;">
+        ⚠️ KE uses <strong>cumulative slabs</strong> — each tier is charged at its own rate, not a flat rate on total units.<br/>
+        FCA varies monthly. Income Tax (7.5%) applies to unprotected consumers (&gt;200 units/month).
+      </div>
     </details>
 
     <button class="btn-bill-close" onclick="closeBillModal()">✕ Close</button>
@@ -1663,6 +1668,7 @@ function pollLive() {
         document.getElementById('te').textContent      = fmt(d.e, 3);
         document.getElementById('te-unit').textContent = 'kWh accumulated';
       }
+      _latestEnergyKwh = parseFloat(d.e) || 0;  // always store raw kWh
       document.getElementById('tf').textContent  = fmt(d.f, 1);
       document.getElementById('tpf').textContent = fmt(d.pf, 2);
 
@@ -2112,55 +2118,89 @@ function forceRetrain() {
 }
 
 
+// ─── KE Tariff — Jan 2026 rates (cumulative slab system) ─────────────────────
+// Source: keduplicatebill.com.pk / NEPRA notification effective Jan 2026
 const KE_SLABS = [
-  { max: 50,        rate: 7.74,  label: '≤ 50 (Protected)' },
-  { max: 100,       rate: 24.73, label: '1 – 100' },
-  { max: 200,       rate: 28.82, label: '101 – 200' },
-  { max: 300,       rate: 32.73, label: '201 – 300' },
-  { max: 700,       rate: 37.07, label: '301 – 700' },
-  { max: Infinity,  rate: 43.07, label: '> 700' },
+  { from: 0,   to: 50,       rate: 16.48, label: '0 – 50 (Protected)' },
+  { from: 51,  to: 100,      rate: 20.85, label: '51 – 100 (Protected)' },
+  { from: 101, to: 200,      rate: 22.94, label: '101 – 200 (Protected)' },
+  { from: 201, to: 300,      rate: 27.14, label: '201 – 300 (Unprotected)' },
+  { from: 301, to: 700,      rate: 32.03, label: '301 – 700 (Unprotected)' },
+  { from: 701, to: Infinity, rate: 35.24, label: '> 700 (Unprotected)' },
 ];
-const KE_FCA        = 5.18;
-const KE_GST        = 0.18;
-const KE_DUTY       = 0.02;
+// FCA varies monthly — using conservative mid-2025 estimate (~Rs 2.5/unit)
+// GST 17% (not 18%), Income Tax 7.5% for >200 units, Meter rent Rs 100/month (single phase)
+const KE_FCA        = 2.50;   // approximate — varies monthly
+const KE_GST        = 0.17;   // 17%
+const KE_DUTY       = 0.015;  // 1.5% Electricity Duty
+const KE_INCOME_TAX = 0.075;  // 7.5% for unprotected (>200 units)
 const KE_TV_FEE     = 35;
-const KE_METER_RENT = 15;
+const KE_METER_RENT = 100;    // single-phase meter, updated rate
 
+// Cumulative slab calculation — each tier charged at its own rate
 function calcKEBill(units) {
-  let slabIdx = KE_SLABS.findIndex(s => units <= s.max);
-  if (slabIdx < 0) slabIdx = KE_SLABS.length - 1;
-  const rate     = KE_SLABS[slabIdx].rate;
-  const base     = units * rate;
+  let base = 0;
+  let lastSlabIdx = 0;
+  let remaining = units;
+
+  for (let i = 0; i < KE_SLABS.length; i++) {
+    if (remaining <= 0) break;
+    const slab    = KE_SLABS[i];
+    const slabMax = slab.to === Infinity ? remaining : (slab.to - slab.from + 1);
+    const inSlab  = Math.min(remaining, slabMax);
+    base     += inSlab * slab.rate;
+    remaining -= inSlab;
+    if (inSlab > 0) lastSlabIdx = i;
+  }
+
   const fca      = units * KE_FCA;
   const subtotal = base + fca;
   const gst      = subtotal * KE_GST;
   const duty     = subtotal * KE_DUTY;
-  const total    = subtotal + gst + duty + KE_TV_FEE + KE_METER_RENT;
-  return { base, fca, gst, duty, total, slabIdx, rate };
+  // Income tax only for unprotected consumers (>200 units)
+  const incomeTax = units > 200 ? subtotal * KE_INCOME_TAX : 0;
+  const total    = subtotal + gst + duty + incomeTax + KE_TV_FEE + KE_METER_RENT;
+  const avgRate  = units > 0 ? base / units : 0;
+  return { base, fca, gst, duty, incomeTax, total, slabIdx: lastSlabIdx, avgRate };
 }
 
+// ─── Latest raw energy in kWh from server (updated on every pollLive) ─────────
+let _latestEnergyKwh = 0;   // always in kWh regardless of display unit
+
 function openBillModal() {
-  const eText = document.getElementById('te').textContent || '0';
-  let kWh = 0;
-  if (eText.includes('Wh')) kWh = parseFloat(eText) / 1000;
-  else kWh = parseFloat(eText) || 0;
+  // Use raw kWh from server — never parse the display string (which may show Wh)
+  const kWh = _latestEnergyKwh;
 
   const pText    = document.getElementById('tp').textContent || '0';
   const watt     = parseFloat(pText) || 0;
   const monthKwh = (watt / 1000) * 24 * 30;
 
-  const units = Math.max(kWh, 0.001);
+  // Monthly estimate using cumulative slabs (scale to month)
+  const monthBill = calcKEBill(Math.max(monthKwh, 0.001));
+  // Accumulated-so-far bill (for informational display)
+  const units = Math.max(kWh, 0.0001);
   const bill  = calcKEBill(units);
 
-  document.getElementById('billUnits').textContent    = units.toFixed(4);
-  document.getElementById('billSlab').textContent     = KE_SLABS[bill.slabIdx].label;
+  // Show units in Wh if < 1 kWh for clarity
+  const unitsDisplay = kWh < 1
+    ? (kWh * 1000).toFixed(1) + ' Wh (' + kWh.toFixed(4) + ' kWh)'
+    : kWh.toFixed(4) + ' kWh';
+
+  document.getElementById('billUnits').textContent    = unitsDisplay;
+  document.getElementById('billSlab').textContent     = KE_SLABS[monthBill.slabIdx].label;
   document.getElementById('billMonthEst').textContent = monthKwh.toFixed(1) + ' kWh';
-  document.getElementById('bill-rate-lbl').textContent = `Rs ${bill.rate.toFixed(2)}/unit`;
-  document.getElementById('bill-base').textContent    = 'Rs ' + bill.base.toFixed(2);
-  document.getElementById('bill-fca').textContent     = 'Rs ' + bill.fca.toFixed(2);
-  document.getElementById('bill-gst').textContent     = 'Rs ' + bill.gst.toFixed(2);
-  document.getElementById('bill-duty').textContent    = 'Rs ' + bill.duty.toFixed(2);
-  document.getElementById('billTotal').textContent    = 'Rs ' + bill.total.toFixed(2);
+  document.getElementById('bill-rate-lbl').textContent = `Avg Rs ${monthBill.avgRate.toFixed(2)}/unit (cumulative)`;
+  document.getElementById('bill-base').textContent    = 'Rs ' + monthBill.base.toFixed(2);
+  document.getElementById('bill-fca').textContent     = 'Rs ' + monthBill.fca.toFixed(2);
+  document.getElementById('bill-gst').textContent     = 'Rs ' + monthBill.gst.toFixed(2);
+  document.getElementById('bill-duty').textContent    = 'Rs ' + monthBill.duty.toFixed(2);
+  // Show income tax row if applicable
+  const itRow = document.getElementById('bill-income-tax-row');
+  if (itRow) itRow.style.display = monthKwh > 200 ? '' : 'none';
+  const itEl = document.getElementById('bill-income-tax');
+  if (itEl) itEl.textContent = 'Rs ' + monthBill.incomeTax.toFixed(2);
+
+  document.getElementById('billTotal').textContent = 'Rs ' + monthBill.total.toFixed(2);
 
   for (let i = 0; i < 6; i++) {
     const row = document.getElementById('slab-' + i);
