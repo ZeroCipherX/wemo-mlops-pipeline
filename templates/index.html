@@ -863,12 +863,19 @@ body {
           <div class="lc-panel-title">⚡ Run Until Units Consumed</div>
           <div class="lc-inputs" style="align-items:flex-end;">
             <div class="lc-input-group" style="flex:2;">
-              <label>Units (kWh)</label>
-              <input type="number" id="unitCutoffVal" min="0.001" step="0.1" placeholder="e.g. 2.0"/>
+              <label id="unitCutoffLabel">Amount</label>
+              <input type="number" id="unitCutoffVal" min="0.001" step="0.1" placeholder="e.g. 100"/>
             </div>
-            <div style="padding-bottom:2px;font-size:11px;color:var(--slate-400);white-space:nowrap;">
-              kWh from now
+            <div class="lc-input-group" style="flex:1; min-width:60px;">
+              <label>Unit</label>
+              <select id="unitCutoffType" style="width:100%;padding:6px 4px;border:1.5px solid var(--slate-200);border-radius:7px;font-family:var(--mono);font-size:13px;font-weight:600;color:var(--slate-900);background:var(--white);outline:none;cursor:pointer;" onchange="updateUnitLabel()">
+                <option value="Wh">Wh</option>
+                <option value="kWh">kWh</option>
+              </select>
             </div>
+          </div>
+          <div style="font-size:10.5px;color:var(--slate-400);margin-bottom:8px;" id="unitCutoffHint">
+            e.g. 100 Wh = 0.1 kWh — relay cuts off when this much energy is consumed
           </div>
           <button class="btn-lc-start btn-lc-unit" id="btnStartUnit" onclick="startUnitCutoff()">
             ▶ Start Unit Cutoff
@@ -904,9 +911,9 @@ body {
       <div class="tele-bar"><div class="tele-bar-fill" id="bp" style="--accent:#2563EB"></div></div>
     </div>
     <div class="tele-card card-e">
-      <div class="tele-label">Energy</div>
+      <div class="tele-label">Energy <button onclick="resetEnergy()" title="Reset accumulated energy to 0" style="font-size:9px;padding:1px 6px;border-radius:4px;border:1px solid #FDE68A;background:var(--amber-bg);color:var(--amber);cursor:pointer;font-weight:700;margin-left:4px;">↺ Reset</button></div>
       <div class="tele-value" id="te">—</div>
-      <div class="tele-unit">kWh accumulated</div>
+      <div class="tele-unit" id="te-unit">accumulated</div>
       <div class="tele-bar"><div class="tele-bar-fill" id="be" style="--accent:#F97316"></div></div>
     </div>
     <div class="tele-card card-hz">
@@ -1649,9 +1656,13 @@ function pollLive() {
       document.getElementById('tv').textContent  = fmt(d.v, 0);
       document.getElementById('ti').textContent  = fmt(d.i, 2);
       document.getElementById('tp').textContent  = fmt(d.p, 1);
-      document.getElementById('te').textContent  = d.e < 1
-        ? fmt(d.e * 1000, 2) + ' Wh'
-        : fmt(d.e, 3) + ' kWh';
+      if (d.e < 1) {
+        document.getElementById('te').textContent      = fmt(d.e * 1000, 2);
+        document.getElementById('te-unit').textContent = 'Wh accumulated';
+      } else {
+        document.getElementById('te').textContent      = fmt(d.e, 3);
+        document.getElementById('te-unit').textContent = 'kWh accumulated';
+      }
       document.getElementById('tf').textContent  = fmt(d.f, 1);
       document.getElementById('tpf').textContent = fmt(d.pf, 2);
 
@@ -2793,10 +2804,29 @@ function cancelTimer() {
   });
 }
 
+function updateUnitLabel() {
+  const type = document.getElementById('unitCutoffType').value;
+  const label = document.getElementById('unitCutoffLabel');
+  const hint  = document.getElementById('unitCutoffHint');
+  const input = document.getElementById('unitCutoffVal');
+  if (type === 'Wh') {
+    label.textContent = 'Amount (Wh)';
+    input.placeholder = 'e.g. 100';
+    input.step = '1';
+    hint.textContent  = 'e.g. 100 Wh = 0.1 kWh — relay cuts off when this much energy is consumed';
+  } else {
+    label.textContent = 'Amount (kWh)';
+    input.placeholder = 'e.g. 0.5';
+    input.step = '0.001';
+    hint.textContent  = 'e.g. 0.5 kWh = 500 Wh — relay cuts off when this much energy is consumed';
+  }
+}
+
 function startUnitCutoff() {
-  const units = parseFloat(document.getElementById('unitCutoffVal').value);
+  const units    = parseFloat(document.getElementById('unitCutoffVal').value);
+  const unitType = document.getElementById('unitCutoffType').value; // "Wh" or "kWh"
   if (!units || units <= 0) {
-    showAlertAuto('warning', '⚠️ Please enter a valid kWh amount.', 3000);
+    showAlertAuto('warning', '⚠️ Please enter a valid amount.', 3000);
     return;
   }
 
@@ -2805,12 +2835,12 @@ function startUnitCutoff() {
   fetch('/api/unit-cutoff', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ units }),
+    body: JSON.stringify({ units, unit_type: unitType.toLowerCase() }),
   })
   .then(r => r.json())
   .then(d => {
     if (d.ok) {
-      showAlertAuto('success', `⚡ Unit cutoff set — relay will turn OFF after ${units} kWh consumed.`, 4000);
+      showAlertAuto('success', `⚡ Unit cutoff set — relay will turn OFF after ${units} ${unitType} consumed.`, 4000);
     } else {
       showAlertAuto('danger', '⚠️ ' + (d.error || 'Unit cutoff failed.'), 4000);
       document.getElementById('btnStartUnit').disabled = false;
@@ -2883,10 +2913,21 @@ function _syncAutomationUI(auto, currentEnergy) {
     btnCancelT.style.display = 'block';
     _clearUnitUI();
   } else if (auto.mode === 'unit_cutoff') {
-    const consumed = Math.max(0, currentEnergy - auto.baseline_kwh);
-    const pct      = auto.requested_kwh > 0 ? Math.min(100, (consumed / auto.requested_kwh * 100)).toFixed(1) : 0;
+    const consumed    = Math.max(0, currentEnergy - auto.baseline_kwh);
+    const reqKwh      = auto.requested_kwh || 0;
+    const unitType    = (auto.requested_unit || 'kwh').toLowerCase();
+    const pct         = reqKwh > 0 ? Math.min(100, (consumed / reqKwh * 100)).toFixed(1) : 0;
+    // Display in Wh or kWh based on what user chose
+    let consumedStr, targetStr;
+    if (unitType === 'wh') {
+      consumedStr = (consumed * 1000).toFixed(1) + ' Wh';
+      targetStr   = (auto.requested_raw || reqKwh * 1000).toFixed(0) + ' Wh';
+    } else {
+      consumedStr = consumed.toFixed(4) + ' kWh';
+      targetStr   = reqKwh.toFixed(4) + ' kWh';
+    }
     unitStatus.className    = 'lc-status active-unit';
-    unitStatus.textContent  = `⚡ ${consumed.toFixed(4)} / ${auto.requested_kwh} kWh (${pct}%)`;
+    unitStatus.textContent  = `⚡ ${consumedStr} / ${targetStr} (${pct}%)`;
     btnStartU.disabled       = true;
     btnCancelU.style.display = 'block';
     _clearTimerUI();
@@ -2897,6 +2938,23 @@ function _syncAutomationUI(auto, currentEnergy) {
   }
 }
 
+
+/* ─── Reset Energy Counter ────────────────────────── */
+function resetEnergy() {
+  if (!confirm('Reset accumulated energy to 0.000 Wh?\n\nNote: This resets the dashboard display. The physical PZEM meter resets when power-cycled.')) return;
+  fetch('/api/reset-energy', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        document.getElementById('te').textContent = '0.00';
+        document.getElementById('te-unit').textContent = 'Wh accumulated';
+        showAlertAuto('normal', '✅ Energy counter reset to 0 Wh.', 4000);
+      } else {
+        showAlertAuto('danger', 'Reset failed: ' + (d.error || 'unknown'), 4000);
+      }
+    })
+    .catch(() => showAlertAuto('danger', '⚠️ Network error during energy reset.', 4000));
+}
 
 /* ─── Boot ────────────────────────────────────────── */
 // Load relay state immediately on page load

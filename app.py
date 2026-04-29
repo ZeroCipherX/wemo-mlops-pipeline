@@ -151,27 +151,31 @@ _training_mode_lock   = threading.Lock()
 # mode = "unit_cutoff" → relay turns OFF when PZEM energy delta >= requested_kwh
 _automation_lock = threading.Lock()
 _automation = {
-    "mode":          "idle",
-    "end_time":      0.0,      # unix timestamp for timer cutoff
-    "duration_secs": 0,        # original duration in seconds (for display)
-    "baseline_kwh":  0.0,      # PZEM energy reading at start of unit cutoff
-    "target_kwh":    0.0,      # baseline + user-requested units
-    "requested_kwh": 0.0,      # what user asked for (for display)
+    "mode":           "idle",
+    "end_time":       0.0,      # unix timestamp for timer cutoff
+    "duration_secs":  0,        # original duration in seconds (for display)
+    "baseline_kwh":   0.0,      # PZEM energy reading at start of unit cutoff
+    "target_kwh":     0.0,      # baseline + user-requested units
+    "requested_kwh":  0.0,      # what user asked for in kWh (for display)
+    "requested_raw":  0.0,      # original user value (Wh or kWh number)
+    "requested_unit": "kWh",    # "wh" or "kwh"
 }
 
 def _automation_watchdog():
     """Daemon thread — fires every second to check if timer has expired."""
     while True:
         time.sleep(1)
+        fire_off = False
         with _automation_lock:
-            if _automation["mode"] != "timer":
-                continue
-            if time.time() >= _automation["end_time"]:
-                print("[TIMER] Time's up — turning relay OFF automatically.", flush=True)
-                _automation["mode"] = "idle"
+            if _automation["mode"] == "timer":
+                if time.time() >= _automation["end_time"]:
+                    print("[TIMER] Time's up — turning relay OFF automatically.", flush=True)
+                    _automation["mode"] = "idle"
+                    fire_off = True
         # Turn relay off outside the lock to avoid deadlock
-        latest["relay_desired"] = 0
-        save_relay_state(0, user_set=True)
+        if fire_off:
+            latest["relay_desired"] = 0
+            save_relay_state(0, user_set=True)
 
 threading.Thread(target=_automation_watchdog, daemon=True).start()
 
@@ -1268,14 +1272,24 @@ def cancel_timer():
 @app.route("/api/unit-cutoff", methods=["POST"])
 def set_unit_cutoff():
     try:
-        data  = request.get_json(force=True)
-        units = float(data.get("units", 0))
-        if units <= 0:
+        data      = request.get_json(force=True)
+        units_raw = float(data.get("units", 0))
+        unit_type = str(data.get("unit_type", "kWh")).strip().lower()  # "wh" or "kwh"
+
+        if units_raw <= 0:
             return jsonify({"ok": False, "error": "Units must be greater than zero."}), 400
+
+        # Convert to kWh for internal comparison (PZEM reports in kWh)
+        if unit_type == "wh":
+            units_kwh      = units_raw / 1000.0
+            display_str    = f"{units_raw} Wh"
+        else:
+            units_kwh      = units_raw
+            display_str    = f"{units_raw} kWh"
 
         # Delta logic — take current PZEM reading as baseline
         baseline = float(latest.get("e", 0))
-        target   = round(baseline + units, 6)
+        target   = round(baseline + units_kwh, 6)
 
         # Turn relay ON immediately
         latest["relay_desired"] = 1
@@ -1285,19 +1299,21 @@ def set_unit_cutoff():
             _automation["mode"]          = "unit_cutoff"
             _automation["baseline_kwh"]  = baseline
             _automation["target_kwh"]    = target
-            _automation["requested_kwh"] = units
+            _automation["requested_kwh"] = units_kwh   # always stored in kWh
+            _automation["requested_raw"] = units_raw   # original user value
+            _automation["requested_unit"]= unit_type   # "wh" or "kwh"
             _automation["end_time"]      = 0.0
             _automation["duration_secs"] = 0
 
         print(
             f"[UNIT CUTOFF] Started — baseline={baseline:.4f} kWh, "
-            f"target={target:.4f} kWh (+{units} kWh).", flush=True
+            f"target={target:.4f} kWh (+{display_str}).", flush=True
         )
         return jsonify({
             "ok": True,
             "baseline_kwh": baseline,
             "target_kwh":   target,
-            "message": f"Relay ON. Will cut off after {units} kWh consumed."
+            "message": f"Relay ON. Will cut off after {display_str} consumed."
         }), 200
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
@@ -1309,6 +1325,20 @@ def cancel_unit_cutoff():
         _automation["mode"] = "idle"
     print("[UNIT CUTOFF] Cancelled by user.", flush=True)
     return jsonify({"ok": True, "message": "Unit cutoff cancelled."}), 200
+
+
+@app.route("/api/reset-energy", methods=["POST"])
+def reset_energy():
+    """Reset the accumulated energy counter (PZEM energy field) to 0 in memory.
+    Note: This only resets the server-side displayed value. The PZEM hardware
+    counter itself resets when power is cycled. This endpoint zeroes the
+    in-memory 'e' field so the dashboard shows 0.000 kWh."""
+    try:
+        latest["e"] = 0.0
+        print("[ENERGY] Accumulated energy counter reset to 0.", flush=True)
+        return jsonify({"ok": True, "message": "Energy counter reset to 0."}), 200
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
 
 # ─── Health check — safe for AWS ALB, does NOT affect presence detection ──────
